@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.default_params import EXP02_DEFAULTS
+from core.flow_rate import FlowCalculator
 from core.hydrodynamics import TwoSliderMobility
 from core.solver import SolverConfig, TwoSliderTimeStepper
 from core.utils import (
@@ -77,6 +78,7 @@ def run_experiment() -> Path:
     s2_0 = _as_float("s2_0")
 
     mobility = TwoSliderMobility(mu=mu, a=a)
+    flow = FlowCalculator(mu=mu, h=h)
     solver_config = SolverConfig(
         method=SOLVER_METHOD,
         rtol=SOLVER_RTOL,
@@ -98,6 +100,11 @@ def run_experiment() -> Path:
         config=solver_config,
     )
     result = stepper.run()
+    t_used, q_x, Q = flow.compute_two_slider_Q_from_result(
+        result=result,
+        phi=phi,
+        use_steady_window=True,
+    )
 
     run_dir = make_run_directory(EXP_NAME, base=OUTPUT_BASE)
     save_parameters(
@@ -143,6 +150,15 @@ def run_experiment() -> Path:
         f"s1_steady_amplitude: {amp1:.8e}",
         f"s2_steady_amplitude: {amp2:.8e}",
         f"corr(s1_steady, s2_steady): {corr:.8e}",
+        "",
+        "--- Flow (paper-aligned) ---",
+        "Definition: Q = (1/T)∫ q_x(t)dt, "
+        "q_x=(z1*Fx1+z2*Fx2)/(pi*mu), z_i=h-s_i*sin(phi), Fx_i=f_i_total*cos(phi)",
+        f"Q: {Q:.8e}",
+        f"Q_sign: {'positive(+x)' if Q > 0 else ('negative(-x)' if Q < 0 else 'zero')}",
+        f"Q_window_start: {float(t_used[0]):.8e}",
+        f"Q_window_end: {float(t_used[-1]):.8e}",
+        f"Q_window_duration: {float(t_used[-1] - t_used[0]):.8e}",
         "",
         "Note: exp02 uses free-space Oseen tensor with line constraint.",
     ]

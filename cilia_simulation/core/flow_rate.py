@@ -18,7 +18,7 @@
     式(2.61) は滑りなし壁 z=0 に対する Blakelet 遠方近似から導かれる。
     第1段階（自由空間・壁なし）では厳密には成立しないが、
     論文と同じ流量指標で第2・第3段階へ接続するため本式を用いる。
-    第3段階で壁を導入すれば物理的にも正当化される。
+    第4段階で壁を導入すれば物理的にも正当化される。
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from core.slider import Slider, SliderParameters
-from core.solver import SimulationResult
+from core.solver import SimulationResult, TwoSliderResult
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ class FlowCalculator:
         論文 式(2.61): q_x(t) = (h / (pi mu)) * F_x(t)。
 
         第1段階では壁なしのため、本式は厳密な Blakelet 遠方場ではなく
-        「論文と同一の流量定義」として用いる（第3段階で壁を入れて正当化）。
+        「論文と同一の流量定義」として用いる（第4段階で壁を入れて正当化）。
 
         Parameters
         ----------
@@ -284,3 +284,80 @@ class FlowCalculator:
             tolerance=tolerance,
             passed=passed,
         )
+
+    def instantaneous_q_x_two_slider(
+        self,
+        *,
+        s1: ArrayLike,
+        s2: ArrayLike,
+        f1_total: ArrayLike,
+        f2_total: ArrayLike,
+        phi: float,
+    ) -> NDArray[np.float64]:
+        """
+        2スライダーの瞬時流量 q_x(t) を返す。
+
+        Theory
+        ------
+        論文式(2.61),(2.62) と 4章の式(4.65)に対応させて、
+        壁高さを z_i = h - s_i sin(phi) とし、
+
+            q_x(t) = (1/(pi*mu)) * [ z_1*F_{x,1} + z_2*F_{x,2} ]
+            F_{x,i} = f_{i,total} * cos(phi)
+
+        で評価する。
+        """
+        s1_arr = np.asarray(s1, dtype=np.float64)
+        s2_arr = np.asarray(s2, dtype=np.float64)
+        f1_arr = np.asarray(f1_total, dtype=np.float64)
+        f2_arr = np.asarray(f2_total, dtype=np.float64)
+        cos_phi = float(np.cos(phi))
+        sin_phi = float(np.sin(phi))
+
+        z1 = self._h - s1_arr * sin_phi
+        z2 = self._h - s2_arr * sin_phi
+        Fx1 = f1_arr * cos_phi
+        Fx2 = f2_arr * cos_phi
+        return (z1 * Fx1 + z2 * Fx2) / (math.pi * self._mu)
+
+    def compute_two_slider_Q_from_result(
+        self,
+        *,
+        result: TwoSliderResult,
+        phi: float,
+        use_steady_window: bool = True,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], float]:
+        """
+        2スライダー積分結果から q_x(t) と周期平均 Q を返す。
+
+        Parameters
+        ----------
+        result : TwoSliderResult
+            2スライダー積分結果。
+        phi : float
+            スライダー傾き角。
+        use_steady_window : bool
+            True の場合は最後の1周期で評価する。
+        """
+        if use_steady_window:
+            t_used = np.asarray(result.t_steady, dtype=np.float64)
+            s1_used = np.asarray(result.s1_steady, dtype=np.float64)
+            s2_used = np.asarray(result.s2_steady, dtype=np.float64)
+            f1_used = np.asarray(result.f1_total[result.steady_start_index :], dtype=np.float64)
+            f2_used = np.asarray(result.f2_total[result.steady_start_index :], dtype=np.float64)
+        else:
+            t_used = np.asarray(result.t, dtype=np.float64)
+            s1_used = np.asarray(result.s1, dtype=np.float64)
+            s2_used = np.asarray(result.s2, dtype=np.float64)
+            f1_used = np.asarray(result.f1_total, dtype=np.float64)
+            f2_used = np.asarray(result.f2_total, dtype=np.float64)
+
+        q_x = self.instantaneous_q_x_two_slider(
+            s1=s1_used,
+            s2=s2_used,
+            f1_total=f1_used,
+            f2_total=f2_used,
+            phi=phi,
+        )
+        Q = self.period_average_Q(t_used, q_x, period=result.period)
+        return t_used, np.asarray(q_x, dtype=np.float64), Q

@@ -13,6 +13,8 @@
 【主要関数 / Main functions】
     make_run_directory, save_parameters, save_summary, save_flow_rate_csv
     plot_trajectory, plot_flow_rate, slice_last_n_periods
+    plot_q_heatmap_delta_l, plot_delta_opt_vs_l
+    plot_q_vs_delta_fixed_l
 """
 
 from __future__ import annotations
@@ -512,3 +514,184 @@ def plot_phase_portrait_s1_s2(
     fig.savefig(path)
     plt.close(fig)
     logger.info("Phase-portrait plot saved: %s", path)
+
+
+def plot_q_heatmap_delta_l(
+    path: Path | str,
+    delta_values: ArrayLike,
+    l_values: ArrayLike,
+    q_map: ArrayLike,
+    *,
+    style: PlotStyle | None = None,
+) -> None:
+    """
+    Q(Delta, l) ヒートマップを保存する。
+
+    Parameters
+    ----------
+    path : Path or str
+        保存先 PNG。
+    delta_values : array_like, shape (n_delta,)
+        位相差 Delta [rad] の配列（プロット時に [deg] へ変換）。
+    l_values : array_like, shape (n_l,)
+        スライダー間距離 l の配列。
+    q_map : array_like, shape (n_l, n_delta)
+        各 (l, Delta) に対応する平均流量 Q。
+    style : PlotStyle, optional
+        図の体裁。
+    """
+    plot_style = style if style is not None else PlotStyle()
+    delta_arr = np.asarray(delta_values, dtype=np.float64)
+    delta_deg = np.degrees(delta_arr)
+    l_arr = np.asarray(l_values, dtype=np.float64)
+    q_arr = np.asarray(q_map, dtype=np.float64)
+    if q_arr.shape != (l_arr.size, delta_arr.size):
+        raise ValueError("q_map shape must be (len(l_values), len(delta_values)).")
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    image = axis.pcolormesh(
+        delta_deg,
+        l_arr,
+        q_arr,
+        shading="auto",
+        cmap="coolwarm",
+    )
+    axis.set_xlabel(r"$\Delta$ [deg]", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$l$", fontsize=plot_style.font_size)
+    axis.set_title(
+        r"$Q(\Delta,l)$ heatmap",
+        fontsize=plot_style.font_size,
+    )
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    cbar = fig.colorbar(image, ax=axis)
+    cbar.set_label(r"$Q$", fontsize=plot_style.font_size)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Q heatmap saved: %s", path)
+
+
+def plot_delta_opt_vs_l(
+    path: Path | str,
+    l_values: ArrayLike,
+    delta_opt_values: ArrayLike,
+    *,
+    style: PlotStyle | None = None,
+) -> None:
+    """
+    Delta_opt(l) の線図を保存する。
+
+    Parameters
+    ----------
+    path : Path or str
+        保存先 PNG。
+    l_values : array_like
+        スライダー間距離 l。
+    delta_opt_values : array_like
+        各 l で Q を最大化する位相差 Delta_opt [rad]
+        （プロット時に [deg] へ変換）。
+    style : PlotStyle, optional
+        図の体裁。
+    """
+    plot_style = style if style is not None else PlotStyle()
+    l_arr = np.asarray(l_values, dtype=np.float64)
+    dopt_arr = np.asarray(delta_opt_values, dtype=np.float64)
+    if l_arr.shape != dopt_arr.shape:
+        raise ValueError("l_values and delta_opt_values must have the same shape.")
+    dopt_deg = np.degrees(dopt_arr)
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    axis.plot(
+        l_arr,
+        dopt_deg,
+        color=plot_style.color_primary,
+        linewidth=plot_style.line_width,
+        marker="o",
+        label=r"$\Delta_{\mathrm{opt}}(l)$",
+    )
+    axis.set_xlabel(r"$l$", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$\Delta_{\mathrm{opt}}$ [deg]", fontsize=plot_style.font_size)
+    axis.set_title(
+        r"Optimal phase difference vs slider spacing",
+        fontsize=plot_style.font_size,
+    )
+    axis.legend(fontsize=plot_style.font_size)
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Delta-opt plot saved: %s", path)
+
+
+def plot_q_vs_delta_fixed_l(
+    path: Path | str,
+    delta_values: ArrayLike,
+    q_values: ArrayLike,
+    *,
+    l_fixed: float,
+    style: PlotStyle | None = None,
+) -> None:
+    """
+    固定 l における Q(Delta) を保存する（論文 Fig.4.2 相当）。
+
+    Parameters
+    ----------
+    path : Path or str
+        保存先 PNG。
+    delta_values : array_like
+        位相差 Delta [rad]。
+    q_values : array_like
+        対応する平均流量 Q。
+    l_fixed : float
+        固定したスライダー間距離。
+    style : PlotStyle, optional
+        図の体裁。
+    """
+    plot_style = style if style is not None else PlotStyle()
+    delta_arr = np.asarray(delta_values, dtype=np.float64)
+    q_arr = np.asarray(q_values, dtype=np.float64)
+    if delta_arr.shape != q_arr.shape:
+        raise ValueError("delta_values and q_values must have the same shape.")
+
+    delta_deg = np.degrees(delta_arr)
+    i_opt = int(np.argmax(q_arr))
+    delta_opt_deg = float(delta_deg[i_opt])
+    q_opt = float(q_arr[i_opt])
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    axis.plot(
+        delta_deg,
+        q_arr,
+        color=plot_style.color_primary,
+        linewidth=plot_style.line_width,
+        label=r"$Q(\Delta)$",
+    )
+    axis.scatter(
+        [delta_opt_deg],
+        [q_opt],
+        color=plot_style.color_secondary,
+        s=40,
+        label=r"$\Delta_{\mathrm{opt}}$",
+        zorder=3,
+    )
+    axis.set_xlabel(r"$\Delta$ [deg]", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$Q$", fontsize=plot_style.font_size)
+    axis.set_title(
+        rf"$Q(\Delta)$ at fixed $l={l_fixed:.3f}$",
+        fontsize=plot_style.font_size,
+    )
+    axis.legend(fontsize=plot_style.font_size)
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Q-vs-Delta plot saved: %s", path)

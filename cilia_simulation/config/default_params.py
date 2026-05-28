@@ -2,13 +2,14 @@
 デフォルト実数パラメータの一括管理 / Central default numeric parameters.
 
 【目的 / Purpose】
-    全実験段階（exp01〜exp03）で使う物理・数値パラメータの実数値を
+    全実験段階（exp01〜exp04）で使う物理・数値パラメータの実数値を
     1か所に集約し、マジックナンバーの散在を防ぐ。
 
 【構成 / Contents】
     - EXP01_DEFAULTS: 第1段階（単一スライダー、壁なし）
     - EXP02_DEFAULTS: 第2段階（2スライダー、Stokeslet）
-    - EXP03_DEFAULTS: 第3段階（2スライダー、Blakelet）— 未使用・後日追加
+    - EXP03_SWEEP_DEFAULTS: 第3段階（Delta-l 掃引）— 未使用・後日追加
+    - EXP04_DEFAULTS: 第4段階（2スライダー、Blakelet）— 未使用・後日追加
 
 【使い方 / Usage】
     experiments/exp01_single_slider.py などから import し、
@@ -66,7 +67,34 @@ EXP02_DEFAULTS: dict[str, float | int] = {
 }
 
 # ==========================================
-# 第3段階 exp03: 2スライダー（壁あり）— プレースホルダ
+# 第3段階 exp03: Delta-l 掃引（壁なし）
 # ==========================================
 
-# EXP03_DEFAULTS: dict[str, float] = { ... }
+EXP03_SWEEP_DEFAULTS: dict[str, float | int] = {
+  # 固定物理パラメータ（基本は exp02 と同じ）
+  "a": 0.05,               # ビーズ半径 / bead radius
+  "mu": 1.0,               # 粘性係数 / dynamic viscosity
+  "k": 1.0,                # ばね定数 / spring constant
+  "F_0": 1.0,              # 駆動力振幅 / active force amplitude
+  "omega": 2.0 * math.pi,  # 角振動数 / angular frequency
+  "phi": math.pi / 4.0,    # 傾き角 [rad] / tilt angle
+  "h": 1.0,                # 流量式の基準高さ / reference height
+  "s1_0": 0.0,             # スライダー1 初期位置 / initial position of slider 1
+  "s2_0": 0.0,             # スライダー2 初期位置 / initial position of slider 2
+
+  # Delta 掃引範囲（論文の -180deg <= Delta < 180deg に対応）
+  "delta_min": -math.pi,   # 掃引最小値 [rad]
+  "delta_max": math.pi,    # 掃引最大値 [rad]（endpoint=False で max は含めない想定）
+  "delta_points": 73,      # 掃引点数（5deg刻み相当）
+
+  # スライダー間距離 l 掃引範囲（壁なしの探索用）
+  "l_min": 1.5,            # 掃引最小値
+  "l_max": 6.0,            # 掃引最大値
+  "l_points": 19,          # 掃引点数
+}
+
+# ==========================================
+# 第4段階 exp04: 2スライダー（壁あり）— プレースホルダ
+# ==========================================
+
+# EXP04_DEFAULTS: dict[str, float] = { ... }
