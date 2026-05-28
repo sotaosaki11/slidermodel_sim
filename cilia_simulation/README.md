@@ -27,7 +27,11 @@ cilia_simulation/
 │   ├── hydrodynamics.py
 │   ├── solver.py
 │   ├── flow_rate.py
+│   ├── stokeslet_field.py
+│   ├── animation.py
 │   └── utils.py
+├── optionrun/             # オンデマンド可視化（実験とは別実行）
+│   └── animate_from_run.py
 ├── experiments/           # 実行スクリプト
 │   ├── exp01_single_slider.py
 │   ├── exp02_two_sliders_nowall.py
@@ -36,6 +40,7 @@ cilia_simulation/
 │   └── test_single_slider.py
 └── output/                # 実行結果（タイムスタンプ付き）
     ├── exp01_single_slider/
+    ├── animations/          # アニメーション（オンデマンド）
     ├── exp02_two_sliders_nowall/
     └── exp03_two_sliders_wall/
 ```
@@ -72,6 +77,30 @@ python experiments/exp01_single_slider.py
 ```
 
 結果は `output/exp01_single_slider/<YYYYMMDD_HHMMSS>/` に保存されます。
+
+## アニメーション（オンデマンド）
+
+数値実験を再実行せず、保存済み run からスライダーと流体（xz 流線・Stokeslet 近似）の動画を生成します。
+
+**IDE の▷（Run Python File）**: `optionrun/animate_from_run.py` を開いて実行。  
+`RUN_DIR_FOR_PLAY = None` なら `output/exp01_single_slider/` の **最新** run を自動選択。
+
+```bash
+# 最新 run を自動選択
+python optionrun/animate_from_run.py
+
+# 特定の run を指定
+python optionrun/animate_from_run.py --run-dir output/exp01_single_slider/<YYYYMMDD_HHMMSS>
+```
+
+オプション: `--gif`（GIF も保存）, `--frames 60`, `--loop-count 2`
+
+出力: `output/animations/exp01_single_slider/<source_timestamp>_<anim_timestamp>/`
+
+- `animation.mp4`（ffmpeg がある場合）または `animation.gif`
+- `preview.png`, `anim_config.json`
+
+`flow_rate.csv` は定常窓1周期分をループ再生します。MP4 には [ffmpeg](https://ffmpeg.org/) が必要な場合があります（無い場合は GIF のみ）。
 
 ## 出力物
 

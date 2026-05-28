@@ -5,3 +5,4 @@ __pycache__/
 .mypy_cache/
 output/**/*
 !output/**/.gitkeep
+!output/animations/.gitkeep
