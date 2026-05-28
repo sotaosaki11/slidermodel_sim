@@ -7,7 +7,7 @@
 
 【構成 / Contents】
     - EXP01_DEFAULTS: 第1段階（単一スライダー、壁なし）
-    - EXP02_DEFAULTS: 第2段階（2スライダー、Stokeslet）— 未使用・後日追加
+    - EXP02_DEFAULTS: 第2段階（2スライダー、Stokeslet）
     - EXP03_DEFAULTS: 第3段階（2スライダー、Blakelet）— 未使用・後日追加
 
 【使い方 / Usage】
@@ -40,10 +40,30 @@ EXP01_DEFAULTS: dict[str, float] = {
 }
 
 # ==========================================
-# 第2段階 exp02: 2スライダー（壁なし）— プレースホルダ
+# 第2段階 exp02: 2スライダー（壁なし）
 # ==========================================
 
-# EXP02_DEFAULTS: dict[str, float] = { ... }
+EXP02_DEFAULTS: dict[str, float | int] = {
+  # 単体パラメータ（exp01 と共通）
+  "a": 0.05,               # ビーズ半径 / bead radius
+  "mu": 1.0,               # 粘性係数 / dynamic viscosity
+  "k": 1.0,                # ばね定数 / spring constant
+  "F_0": 1.0,              # 駆動力振幅 / active force amplitude
+  "omega": 2.0 * math.pi,  # 角振動数 / angular frequency
+  "phi": math.pi / 4.0,    # 傾き角 [rad] / tilt angle
+  "h": 1.0,                # 流量式の基準高さ / reference height
+  "s1_0": 0.0,             # スライダー1 初期位置 / initial position of slider 1
+  "s2_0": 0.0,             # スライダー2 初期位置 / initial position of slider 2
+
+  # 2スライダー固有パラメータ
+  "l": 2.0,                # スライダー間距離 / center-to-center distance
+  "delta": math.pi / 2.0,  # 位相差 Delta [rad]（まず単一点）
+
+  # 将来の掃引用（Step 1 では未使用）
+  "delta_min": -math.pi,   # Delta 掃引の最小値
+  "delta_max": math.pi,    # Delta 掃引の最大値
+  "delta_points": 13,      # Delta 掃引点数（例: 粗い掃引）
+}
 
 # ==========================================
 # 第3段階 exp03: 2スライダー（壁あり）— プレースホルダ

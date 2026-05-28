@@ -13,6 +13,26 @@
 
 各段階は **前段階の `core/` を拡張** し、実験スクリプトは履歴として残します。
 
+## 現在の進捗メモ（exp02 準備）
+
+- `config/default_params.py` に `EXP02_DEFAULTS` を追加済み。
+  - 初期値: `l=2.0`, `delta=pi/2`
+  - 将来の掃引用に `delta_min`, `delta_max`, `delta_points` も定義済み
+- `core/hydrodynamics.py` に拘束付き `TwoSliderMobility` を追加済み。
+  - 自己項: `M_aa = gamma_0 I`, `gamma_0 = 1/(6*pi*mu*a)`
+  - 交差項: Oseen テンソルを使用
+  - 拘束条件: `rdot_i · e_s_perp = 0` から `lambda_1, lambda_2` を連立で解く
+- `core/solver.py` に `TwoSliderTimeStepper` と `TwoSliderResult` を追加済み。
+  - 状態: `y = [s1, s2]`
+  - 駆動: `f_active1 = F0 cos(omega t)`, `f_active2 = F0 cos(omega t - delta)`
+  - 幾何: `r1 = r1_base + s1 e_s`, `r2 = r2_base + s2 e_s`
+    - 論文式に合わせて `r1_base=(-l/2, 0, h)`, `r2_base=(+l/2, 0, h)` を採用
+  - 速度: `TwoSliderMobility.compute_velocities(...)` から `(ds1/dt, ds2/dt)` を取得
+  - 積分: `RK45` / `Euler` 両対応、最後の1周期を steady window として切り出し
+- Stokeslet の表記は論文に合わせて整理済み。
+  - 核テンソル: `J = I + (R⊗R)/R^2`（Eq.2.40 形式）
+  - 物理次元付き相互移動度: `M_ab = (1/(8*pi*mu*R)) * J`（Eq.2.39 と同値）
+
 ## ディレクトリ構成
 
 ```

@@ -22,10 +22,10 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 from scipy.integrate import solve_ivp
 
-from core.hydrodynamics import Mobility
+from core.hydrodynamics import Mobility, TwoSliderMobility
 from core.slider import Slider
 
 logger = logging.getLogger(__name__)
@@ -308,3 +308,204 @@ class TimeStepper:
         if index >= len(t):
             index = max(0, len(t) - 1)
         return index
+
+
+# ==========================================
+# 3. TwoSliderTimeStepper（exp02）
+# ==========================================
+
+
+@dataclass(frozen=True)
+class TwoSliderResult:
+    """
+    2スライダー積分結果 / Integration output for exp02.
+
+    Attributes
+    ----------
+    t : ndarray
+        時刻列。
+    s1, s2 : ndarray
+        各スライダーの線方向座標。
+    f1_total, f2_total : ndarray
+        各スライダーの直線方向合力。
+    period : float
+        駆動周期 T=2*pi/omega。
+    n_periods : int
+        積分した周期数。
+    steady_start_index : int
+        最後の1周期開始インデックス。
+    """
+
+    t: NDArray[np.float64]
+    s1: NDArray[np.float64]
+    s2: NDArray[np.float64]
+    f1_total: NDArray[np.float64]
+    f2_total: NDArray[np.float64]
+    period: float
+    n_periods: int
+    steady_start_index: int
+
+    @property
+    def t_steady(self) -> NDArray[np.float64]:
+        return self.t[self.steady_start_index :]
+
+    @property
+    def s1_steady(self) -> NDArray[np.float64]:
+        return self.s1[self.steady_start_index :]
+
+    @property
+    def s2_steady(self) -> NDArray[np.float64]:
+        return self.s2[self.steady_start_index :]
+
+
+class TwoSliderTimeStepper:
+    """
+    拘束付き2スライダー ODE を積分する（exp02）。
+
+    Notes
+    -----
+    状態は y=[s1, s2]。速度は TwoSliderMobility.compute_velocities(...) で評価する。
+    """
+
+    def __init__(
+        self,
+        *,
+        mobility: TwoSliderMobility,
+        omega: float,
+        k: float,
+        F_0: float,
+        phi: float,
+        l: float,
+        h: float,
+        delta: float,
+        s1_0: float = 0.0,
+        s2_0: float = 0.0,
+        config: SolverConfig | None = None,
+    ) -> None:
+        if omega <= 0.0:
+            raise ValueError("omega must be positive.")
+        if l <= 0.0:
+            raise ValueError("l must be positive.")
+        if h < 0.0:
+            raise ValueError("h must be non-negative.")
+        self.mobility = mobility
+        self.omega = float(omega)
+        self.k = float(k)
+        self.F_0 = float(F_0)
+        self.phi = float(phi)
+        self.l = float(l)
+        self.h = float(h)
+        self.delta = float(delta)
+        self.s1_0 = float(s1_0)
+        self.s2_0 = float(s2_0)
+        self.config = config if config is not None else SolverConfig()
+        self._period = 2.0 * math.pi / self.omega
+
+        self._e_s = np.array(
+            [math.cos(self.phi), 0.0, -math.sin(self.phi)],
+            dtype=np.float64,
+        )
+        self._e_s_perp = np.array(
+            [math.sin(self.phi), 0.0, math.cos(self.phi)],
+            dtype=np.float64,
+        )
+        # 論文式(4.1)(4.2)に合わせる: x 基準は ±l/2, z 基準は h。
+        self._r1_base = np.array([-0.5 * self.l, 0.0, self.h], dtype=np.float64)
+        self._r2_base = np.array([0.5 * self.l, 0.0, self.h], dtype=np.float64)
+
+    @property
+    def period(self) -> float:
+        """駆動周期 T=2*pi/omega."""
+        return self._period
+
+    def _positions_from_state(
+        self,
+        s1: float,
+        s2: float,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        r1 = self._r1_base + s1 * self._e_s
+        r2 = self._r2_base + s2 * self._e_s
+        return r1, r2
+
+    def _active_forces(self, t: float) -> tuple[float, float]:
+        f_active1 = self.F_0 * math.cos(self.omega * t)
+        f_active2 = self.F_0 * math.cos(self.omega * t - self.delta)
+        return f_active1, f_active2
+
+    def _rhs(self, t: float, y: NDArray[np.float64]) -> NDArray[np.float64]:
+        s1 = float(y[0])
+        s2 = float(y[1])
+        r1, r2 = self._positions_from_state(s1, s2)
+        f_active1, f_active2 = self._active_forces(t)
+        ds1_dt, ds2_dt = self.mobility.compute_velocities(
+            s1=s1,
+            s2=s2,
+            r1=r1,
+            r2=r2,
+            e_s=self._e_s,
+            e_s_perp=self._e_s_perp,
+            f_active1=f_active1,
+            f_active2=f_active2,
+            k=self.k,
+        )
+        return np.array([ds1_dt, ds2_dt], dtype=np.float64)
+
+    def run(self) -> TwoSliderResult:
+        cfg = self.config
+        if cfg.n_periods < 1:
+            raise ValueError("n_periods must be at least 1.")
+
+        t_end = cfg.t_start + cfg.n_periods * self._period
+        n_eval = cfg.n_periods * cfg.n_eval_per_period + 1
+        t_eval = np.linspace(cfg.t_start, t_end, n_eval)
+
+        y0 = np.array([self.s1_0, self.s2_0], dtype=np.float64)
+        method = cfg.method.upper()
+        if method == "RK45":
+            sol = solve_ivp(
+                self._rhs,
+                (float(t_eval[0]), float(t_eval[-1])),
+                y0,
+                method="RK45",
+                t_eval=t_eval,
+                rtol=cfg.rtol,
+                atol=cfg.atol,
+            )
+            if not sol.success:
+                raise RuntimeError(f"solve_ivp failed: {sol.message}")
+            t = np.asarray(sol.t, dtype=np.float64)
+            s1 = np.asarray(sol.y[0], dtype=np.float64)
+            s2 = np.asarray(sol.y[1], dtype=np.float64)
+        elif method == "EULER":
+            t = t_eval
+            s1 = np.empty_like(t)
+            s2 = np.empty_like(t)
+            s1[0], s2[0] = self.s1_0, self.s2_0
+            for i in range(len(t) - 1):
+                dt = float(t[i + 1] - t[i])
+                dydt = self._rhs(float(t[i]), np.array([s1[i], s2[i]], dtype=np.float64))
+                s1[i + 1] = s1[i] + dt * float(dydt[0])
+                s2[i + 1] = s2[i] + dt * float(dydt[1])
+        else:
+            raise ValueError(f"Unknown integration method: {cfg.method}")
+
+        f_active1 = self.F_0 * np.cos(self.omega * t)
+        f_active2 = self.F_0 * np.cos(self.omega * t - self.delta)
+        f1_total = f_active1 - self.k * s1
+        f2_total = f_active2 - self.k * s2
+
+        t_steady = cfg.t_start + (cfg.n_periods - 1) * self._period
+        steady_start_index = int(np.searchsorted(t, t_steady, side="left"))
+        if steady_start_index >= len(t):
+            steady_start_index = max(0, len(t) - 1)
+
+        return TwoSliderResult(
+            t=t,
+            s1=s1,
+            s2=s2,
+            f1_total=np.asarray(f1_total, dtype=np.float64),
+            f2_total=np.asarray(f2_total, dtype=np.float64),
+            period=self._period,
+            n_periods=cfg.n_periods,
+            steady_start_index=steady_start_index,
+        )
