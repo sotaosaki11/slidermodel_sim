@@ -85,7 +85,7 @@ EXP03_SWEEP_DEFAULTS: dict[str, float | int] = {
   # Delta 掃引範囲（論文の -180deg <= Delta < 180deg に対応）
   "delta_min": -math.pi,   # 掃引最小値 [rad]
   "delta_max": math.pi,    # 掃引最大値 [rad]（endpoint=False で max は含めない想定）
-  "delta_points": 73,      # 掃引点数（5deg刻み相当）
+  "delta_points": 8000,      # 掃引点数（5deg刻み相当）
 
   # スライダー間距離 l 掃引範囲（壁なしの探索用）
   "l_min": 1.5,            # 掃引最小値

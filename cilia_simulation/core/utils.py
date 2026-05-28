@@ -14,7 +14,7 @@
     make_run_directory, save_parameters, save_summary, save_flow_rate_csv
     plot_trajectory, plot_flow_rate, slice_last_n_periods
     plot_q_heatmap_delta_l, plot_delta_opt_vs_l
-    plot_q_vs_delta_fixed_l
+    plot_q_vs_delta_fixed_l, dimless_label
 """
 
 from __future__ import annotations
@@ -53,6 +53,23 @@ class PlotStyle:
     color_secondary: str = "C1"
     grid_alpha: float = 0.35
     font_size: int = 11
+
+
+def dimless_label(latex_symbol: str) -> str:
+    """
+    無次元量の軸・凡例ラベル用 LaTeX 文字列（上付き *）を返す。
+
+    Parameters
+    ----------
+    latex_symbol : str
+        本体記号（例: ``Q``, ``l``, ``s_1``）。
+
+    Returns
+    -------
+    str
+        例: ``$Q^{*}$``
+    """
+    return rf"${latex_symbol}^{{*}}$"
 
 
 # ==========================================
@@ -262,10 +279,10 @@ def plot_trajectory(
         s_plot,
         color=plot_style.color_primary,
         linewidth=plot_style.line_width,
-        label=r"$s_1(t)$",
+        label=r"$s_1^{*}(t^{*})$",
     )
-    axis.set_xlabel(r"$t$", fontsize=plot_style.font_size)
-    axis.set_ylabel(r"$s_1$", fontsize=plot_style.font_size)
+    axis.set_xlabel(dimless_label("t"), fontsize=plot_style.font_size)
+    axis.set_ylabel(dimless_label("s_1"), fontsize=plot_style.font_size)
     axis.set_title(
         r"Slider position (last {:d} periods)".format(n_periods),
         fontsize=plot_style.font_size,
@@ -317,10 +334,10 @@ def plot_flow_rate(
         q_plot,
         color=plot_style.color_primary,
         linewidth=plot_style.line_width,
-        label=r"$q_x(t)$",
+        label=r"$q_x^{*}(t^{*})$",
     )
-    axis.set_xlabel(r"$t$", fontsize=plot_style.font_size)
-    axis.set_ylabel(r"$q_x$", fontsize=plot_style.font_size)
+    axis.set_xlabel(dimless_label("t"), fontsize=plot_style.font_size)
+    axis.set_ylabel(dimless_label("q_x"), fontsize=plot_style.font_size)
     axis.set_title(
         r"Instantaneous flow rate (last {:d} periods)".format(n_periods),
         fontsize=plot_style.font_size,
@@ -374,17 +391,17 @@ def plot_two_slider_trajectories(
         s1_plot,
         color=plot_style.color_primary,
         linewidth=plot_style.line_width,
-        label=r"$s_1(t)$",
+        label=r"$s_1^{*}(t^{*})$",
     )
     axis.plot(
         t_plot,
         s2_plot,
         color=plot_style.color_secondary,
         linewidth=plot_style.line_width,
-        label=r"$s_2(t)$",
+        label=r"$s_2^{*}(t^{*})$",
     )
-    axis.set_xlabel(r"$t$", fontsize=plot_style.font_size)
-    axis.set_ylabel(r"$s_i$", fontsize=plot_style.font_size)
+    axis.set_xlabel(dimless_label("t"), fontsize=plot_style.font_size)
+    axis.set_ylabel(dimless_label("s_i"), fontsize=plot_style.font_size)
     axis.set_title(
         r"Two-slider trajectories (last {:d} periods)".format(n_periods),
         fontsize=plot_style.font_size,
@@ -438,17 +455,17 @@ def plot_two_slider_forces(
         f1_plot,
         color=plot_style.color_primary,
         linewidth=plot_style.line_width,
-        label=r"$f_1(t)$",
+        label=r"$f_1^{*}(t^{*})$",
     )
     axis.plot(
         t_plot,
         f2_plot,
         color=plot_style.color_secondary,
         linewidth=plot_style.line_width,
-        label=r"$f_2(t)$",
+        label=r"$f_2^{*}(t^{*})$",
     )
-    axis.set_xlabel(r"$t$", fontsize=plot_style.font_size)
-    axis.set_ylabel(r"$f_i$", fontsize=plot_style.font_size)
+    axis.set_xlabel(dimless_label("t"), fontsize=plot_style.font_size)
+    axis.set_ylabel(dimless_label("f_i"), fontsize=plot_style.font_size)
     axis.set_title(
         r"Two-slider total forces (last {:d} periods)".format(n_periods),
         fontsize=plot_style.font_size,
@@ -503,10 +520,10 @@ def plot_phase_portrait_s1_s2(
         color=plot_style.color_primary,
         linewidth=plot_style.line_width,
     )
-    axis.set_xlabel(r"$s_1$", fontsize=plot_style.font_size)
-    axis.set_ylabel(r"$s_2$", fontsize=plot_style.font_size)
+    axis.set_xlabel(dimless_label("s_1"), fontsize=plot_style.font_size)
+    axis.set_ylabel(dimless_label("s_2"), fontsize=plot_style.font_size)
     axis.set_title(
-        r"Phase portrait $s_2$ vs $s_1$ (last {:d} periods)".format(n_periods),
+        r"Phase portrait $s_2^{*}$ vs $s_1^{*}$ (last {:d} periods)".format(n_periods),
         fontsize=plot_style.font_size,
     )
     axis.grid(True, alpha=plot_style.grid_alpha)
@@ -560,14 +577,14 @@ def plot_q_heatmap_delta_l(
         cmap="coolwarm",
     )
     axis.set_xlabel(r"$\Delta$ [deg]", fontsize=plot_style.font_size)
-    axis.set_ylabel(r"$l$", fontsize=plot_style.font_size)
+    axis.set_ylabel(dimless_label("l"), fontsize=plot_style.font_size)
     axis.set_title(
-        r"$Q(\Delta,l)$ heatmap",
+        r"$Q^{*}(\Delta,l^{*})$ heatmap",
         fontsize=plot_style.font_size,
     )
     axis.grid(True, alpha=plot_style.grid_alpha)
     cbar = fig.colorbar(image, ax=axis)
-    cbar.set_label(r"$Q$", fontsize=plot_style.font_size)
+    cbar.set_label(dimless_label("Q"), fontsize=plot_style.font_size)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
@@ -613,9 +630,9 @@ def plot_delta_opt_vs_l(
         color=plot_style.color_primary,
         linewidth=plot_style.line_width,
         marker="o",
-        label=r"$\Delta_{\mathrm{opt}}(l)$",
+        label=r"$\Delta_{\mathrm{opt}}(l^{*})$",
     )
-    axis.set_xlabel(r"$l$", fontsize=plot_style.font_size)
+    axis.set_xlabel(dimless_label("l"), fontsize=plot_style.font_size)
     axis.set_ylabel(r"$\Delta_{\mathrm{opt}}$ [deg]", fontsize=plot_style.font_size)
     axis.set_title(
         r"Optimal phase difference vs slider spacing",
@@ -673,7 +690,10 @@ def plot_q_vs_delta_fixed_l(
         q_arr,
         color=plot_style.color_primary,
         linewidth=plot_style.line_width,
-        label=r"$Q(\Delta)$",
+        linestyle="-",
+        marker="o",
+        markersize=4.0,
+        label=r"$Q^{*}(\Delta)$",
     )
     axis.scatter(
         [delta_opt_deg],
@@ -684,9 +704,9 @@ def plot_q_vs_delta_fixed_l(
         zorder=3,
     )
     axis.set_xlabel(r"$\Delta$ [deg]", fontsize=plot_style.font_size)
-    axis.set_ylabel(r"$Q$", fontsize=plot_style.font_size)
+    axis.set_ylabel(dimless_label("Q"), fontsize=plot_style.font_size)
     axis.set_title(
-        rf"$Q(\Delta)$ at fixed $l={l_fixed:.3f}$",
+        rf"$Q^{{*}}(\Delta)$ at fixed $l^{{*}}={l_fixed:.3f}$",
         fontsize=plot_style.font_size,
     )
     axis.legend(fontsize=plot_style.font_size)

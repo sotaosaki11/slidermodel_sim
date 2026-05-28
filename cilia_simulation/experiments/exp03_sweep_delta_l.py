@@ -169,11 +169,7 @@ def run_experiment() -> Path:
                     solver_config=solver_config,
                 )
                 case_seconds = time.perf_counter() - case_start
-                progress.update(
-                    l_value=float(l),
-                    delta_rad=float(delta),
-                    case_seconds=case_seconds,
-                )
+                progress.update(case_seconds=case_seconds)
 
     delta_opt_idx = np.argmax(q_map, axis=1)
     delta_opt_values = delta_values[delta_opt_idx]

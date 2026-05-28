@@ -296,10 +296,10 @@ def render_animation(
         )
         axis.set_xlim(anim_config.x_min, anim_config.x_max)
         axis.set_ylim(anim_config.z_min, anim_config.z_max)
-        axis.set_xlabel(r"$x$")
-        axis.set_ylabel(r"$z$")
+        axis.set_xlabel(r"$x^{*}$")
+        axis.set_ylabel(r"$z^{*}$")
         axis.set_title(
-            r"Stokeslet velocity (xz), $t=%.2f$" % float(t_frames[frame_index])
+            r"Stokeslet velocity (xz), $t^{*}=%.2f$" % float(t_frames[frame_index])
         )
         axis.legend(loc="upper right", fontsize=9)
         axis.grid(True, alpha=0.35)

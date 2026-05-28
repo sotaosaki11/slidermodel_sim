@@ -68,6 +68,7 @@
     - `Q_heatmap_delta_l.png`
     - `delta_opt_vs_l.png`
     - `Q_vs_delta_fixed_l.png`（`l` は `EXP02_DEFAULTS["l"]` を固定値として使用）
+- グラフの無次元量ラベルは `$Q^{*}$`, `$l^{*}$` のように上付き `*` を付ける（`.cursorrules` セクション6、`core/utils.py` の `dimless_label`）。
 - Stokeslet の表記は論文に合わせて整理済み。
   - 核テンソル: `J = I + (R⊗R)/R^2`（Eq.2.40 形式）
   - 物理次元付き相互移動度: `M_ab = (1/(8*pi*mu*R)) * J`（Eq.2.39 と同値）
