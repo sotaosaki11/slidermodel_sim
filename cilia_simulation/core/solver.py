@@ -428,8 +428,9 @@ class TwoSliderTimeStepper:
         return r1, r2
 
     def _active_forces(self, t: float) -> tuple[float, float]:
-        f_active1 = self.F_0 * math.cos(self.omega * t)
-        f_active2 = self.F_0 * math.cos(self.omega * t - self.delta)
+        # 論文式(4.3)の位相規約: F1 = F0 cos(omega t + Delta), F2 = F0 cos(omega t)
+        f_active1 = self.F_0 * math.cos(self.omega * t + self.delta)
+        f_active2 = self.F_0 * math.cos(self.omega * t)
         return f_active1, f_active2
 
     def _rhs(self, t: float, y: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -489,8 +490,8 @@ class TwoSliderTimeStepper:
         else:
             raise ValueError(f"Unknown integration method: {cfg.method}")
 
-        f_active1 = self.F_0 * np.cos(self.omega * t)
-        f_active2 = self.F_0 * np.cos(self.omega * t - self.delta)
+        f_active1 = self.F_0 * np.cos(self.omega * t + self.delta)
+        f_active2 = self.F_0 * np.cos(self.omega * t)
         f1_total = f_active1 - self.k * s1
         f2_total = f_active2 - self.k * s2
 

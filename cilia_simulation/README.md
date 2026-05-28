@@ -29,6 +29,15 @@
     - 論文式に合わせて `r1_base=(-l/2, 0, h)`, `r2_base=(+l/2, 0, h)` を採用
   - 速度: `TwoSliderMobility.compute_velocities(...)` から `(ds1/dt, ds2/dt)` を取得
   - 積分: `RK45` / `Euler` 両対応、最後の1周期を steady window として切り出し
+- `experiments/exp02_two_sliders_nowall.py` を新規作成済み。
+  - `EXP02_DEFAULTS` を読み込み、`TwoSliderMobility` + `TwoSliderTimeStepper` で時系列を計算
+  - 出力: `output/exp02_two_sliders_nowall/<timestamp>/`
+  - 保存物:
+    - `parameters.json`
+    - `summary.txt`（有限値チェック、定常振幅、`corr(s1,s2)` を含む）
+    - `trajectory_s1s2.png`（`s1(t), s2(t)`）
+    - `forces_f1f2.png`（`f1(t), f2(t)`）
+    - `phase_portrait_s1_vs_s2.png`（相図 `s2` vs `s1`）
 - Stokeslet の表記は論文に合わせて整理済み。
   - 核テンソル: `J = I + (R⊗R)/R^2`（Eq.2.40 形式）
   - 物理次元付き相互移動度: `M_ab = (1/(8*pi*mu*R)) * J`（Eq.2.39 と同値）

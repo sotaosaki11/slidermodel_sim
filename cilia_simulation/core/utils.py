@@ -329,3 +329,186 @@ def plot_flow_rate(
     fig.savefig(path)
     plt.close(fig)
     logger.info("Flow-rate plot saved: %s", path)
+
+
+def plot_two_slider_trajectories(
+    path: Path | str,
+    t: ArrayLike,
+    s1: ArrayLike,
+    s2: ArrayLike,
+    period: float,
+    *,
+    n_periods: int = 2,
+    style: PlotStyle | None = None,
+) -> None:
+    """
+    2スライダーの軌道 s1(t), s2(t) を重ね描きで保存する。
+
+    Parameters
+    ----------
+    path : Path or str
+        保存先 PNG。
+    t : array_like
+        時刻列。
+    s1, s2 : array_like
+        各スライダー座標。
+    period : float
+        駆動周期 T。
+    n_periods : int
+        末尾から描画する周期数。
+    style : PlotStyle, optional
+        図の体裁。
+    """
+    plot_style = style if style is not None else PlotStyle()
+    t_plot, s1_plot = slice_last_n_periods(t, s1, period, n_periods)
+    _, s2_plot = slice_last_n_periods(t, s2, period, n_periods)
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    axis.plot(
+        t_plot,
+        s1_plot,
+        color=plot_style.color_primary,
+        linewidth=plot_style.line_width,
+        label=r"$s_1(t)$",
+    )
+    axis.plot(
+        t_plot,
+        s2_plot,
+        color=plot_style.color_secondary,
+        linewidth=plot_style.line_width,
+        label=r"$s_2(t)$",
+    )
+    axis.set_xlabel(r"$t$", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$s_i$", fontsize=plot_style.font_size)
+    axis.set_title(
+        r"Two-slider trajectories (last {:d} periods)".format(n_periods),
+        fontsize=plot_style.font_size,
+    )
+    axis.legend(fontsize=plot_style.font_size)
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Two-slider trajectory plot saved: %s", path)
+
+
+def plot_two_slider_forces(
+    path: Path | str,
+    t: ArrayLike,
+    f1_total: ArrayLike,
+    f2_total: ArrayLike,
+    period: float,
+    *,
+    n_periods: int = 2,
+    style: PlotStyle | None = None,
+) -> None:
+    """
+    2スライダーの合力 f1(t), f2(t) を重ね描きで保存する。
+
+    Parameters
+    ----------
+    path : Path or str
+        保存先 PNG。
+    t : array_like
+        時刻列。
+    f1_total, f2_total : array_like
+        各スライダー直線方向の合力。
+    period : float
+        駆動周期 T。
+    n_periods : int
+        末尾から描画する周期数。
+    style : PlotStyle, optional
+        図の体裁。
+    """
+    plot_style = style if style is not None else PlotStyle()
+    t_plot, f1_plot = slice_last_n_periods(t, f1_total, period, n_periods)
+    _, f2_plot = slice_last_n_periods(t, f2_total, period, n_periods)
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    axis.plot(
+        t_plot,
+        f1_plot,
+        color=plot_style.color_primary,
+        linewidth=plot_style.line_width,
+        label=r"$f_1(t)$",
+    )
+    axis.plot(
+        t_plot,
+        f2_plot,
+        color=plot_style.color_secondary,
+        linewidth=plot_style.line_width,
+        label=r"$f_2(t)$",
+    )
+    axis.set_xlabel(r"$t$", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$f_i$", fontsize=plot_style.font_size)
+    axis.set_title(
+        r"Two-slider total forces (last {:d} periods)".format(n_periods),
+        fontsize=plot_style.font_size,
+    )
+    axis.legend(fontsize=plot_style.font_size)
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Two-slider force plot saved: %s", path)
+
+
+def plot_phase_portrait_s1_s2(
+    path: Path | str,
+    t: ArrayLike,
+    s1: ArrayLike,
+    s2: ArrayLike,
+    period: float,
+    *,
+    n_periods: int = 2,
+    style: PlotStyle | None = None,
+) -> None:
+    """
+    相図 s2 vs s1 を保存する（末尾 n 周期）。
+
+    Parameters
+    ----------
+    path : Path or str
+        保存先 PNG。
+    t : array_like
+        時刻列（切り出し用）。
+    s1, s2 : array_like
+        各スライダー座標。
+    period : float
+        駆動周期 T。
+    n_periods : int
+        末尾から描画する周期数。
+    style : PlotStyle, optional
+        図の体裁。
+    """
+    plot_style = style if style is not None else PlotStyle()
+    _, s1_plot = slice_last_n_periods(t, s1, period, n_periods)
+    _, s2_plot = slice_last_n_periods(t, s2, period, n_periods)
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    axis.plot(
+        s1_plot,
+        s2_plot,
+        color=plot_style.color_primary,
+        linewidth=plot_style.line_width,
+    )
+    axis.set_xlabel(r"$s_1$", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$s_2$", fontsize=plot_style.font_size)
+    axis.set_title(
+        r"Phase portrait $s_2$ vs $s_1$ (last {:d} periods)".format(n_periods),
+        fontsize=plot_style.font_size,
+    )
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Phase-portrait plot saved: %s", path)
