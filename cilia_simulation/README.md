@@ -42,10 +42,11 @@
     - `trajectory_s1s2.png`（`s1(t), s2(t)`）
     - `forces_f1f2.png`（`f1(t), f2(t)`）
     - `phase_portrait_s1_vs_s2.png`（相図 `s2` vs `s1`）
-- `config/default_params.py` に `EXP03_SWEEP_DEFAULTS` を追加済み。
-  - `Delta` 掃引: `delta_min`, `delta_max`, `delta_points`
-  - `l` 掃引: `l_min`, `l_max`, `l_points`
-  - 固定パラメータ（`a, mu, k, F_0, omega, phi, h`）は exp02 と同じ基準値
+- `config/default_params.py` に exp03 用プリセットを追加済み。
+  - `EXP03_SWEEP_FAST_DEFAULTS`（探索用: `delta_points=360`, Euler）
+  - `EXP03_SWEEP_FINE_DEFAULTS` / `EXP03_SWEEP_DEFAULTS`（論文比較用: `delta_points=8000`, RK45）
+  - `EXP03_SOLVER_PRESETS`, `resolve_exp03_config(mode)`
+  - `l` 掃引: `l_min`, `l_max`, `l_points`（fast/fine 共通）
 - `core/utils.py` に掃引用プロット関数を追加済み。
   - `plot_q_heatmap_delta_l(...)`
   - `plot_delta_opt_vs_l(...)`
@@ -55,13 +56,13 @@
   - `SweepProgressTracker` で sweep 実行時の進捗表示を共通化
   - `tqdm` の1行更新表示と EMA 残り時間推定 (`eta_ema_s`) を再利用可能
 - `experiments/exp03_sweep_delta_l.py` を実装済み。
-  - `EXP03_SWEEP_DEFAULTS` を読み込み、`Delta × l` 掃引で `Q` を評価
+  - `resolve_exp03_config(mode)` で fast/fine を切り替え、`Delta × l` 掃引で `Q` を評価
+  - `ProcessPoolExecutor` による並列 sweep（`--workers`、実験スクリプト側で orchestration）
   - `FlowCalculator.compute_two_slider_Q_from_result(...)` を用いて各ケースの `Q` を統一定義で計算
   - 実行中は `core.progress.SweepProgressTracker` を利用して進捗表示
-  - postfix に `l`, `delta_deg`, `eta_ema_s`（EMAベース残り時間推定）を表示
   - 出力: `output/exp03_sweep_delta_l/<timestamp>/`
   - 保存物:
-    - `parameters.json`, `summary.txt`（`elapsed_seconds`, `elapsed_minutes` を含む）
+    - `parameters.json`, `summary.txt`（`mode`, `workers`, `total_cases`, `elapsed_minutes` を含む）
     - `q_delta_l.csv`（`l,delta_rad,delta_deg,Q`）
     - `delta_opt_vs_l.csv`（`l,delta_opt_rad,delta_opt_deg,Q_max`）
     - `q_vs_delta_fixed_l.csv`（`delta_rad,delta_deg,Q` at fixed `l`）
@@ -87,18 +88,23 @@ cilia_simulation/
 │   ├── hydrodynamics.py
 │   ├── solver.py
 │   ├── flow_rate.py
+│   ├── two_slider.py      # 2本スライダー1ケース Q 計算
+│   ├── sweep.py           # 掃引並列実行
+│   ├── progress.py
 │   ├── stokeslet_field.py
 │   ├── animation.py
 │   └── utils.py
 ├── optionrun/             # オンデマンド可視化（実験とは別実行）
 │   └── animate_from_run.py
 ├── experiments/           # 実行スクリプト
+│   ├── __init__.py
 │   ├── exp01_single_slider.py
 │   ├── exp02_two_sliders_nowall.py
 │   ├── exp03_sweep_delta_l.py
 │   └── exp04_two_sliders_wall.py
 ├── tests/
-│   └── test_single_slider.py
+│   ├── test_single_slider.py
+│   └── test_exp03_sweep.py
 └── output/                # 実行結果（タイムスタンプ付き）
     ├── exp01_single_slider/
     ├── animations/          # アニメーション（オンデマンド）
@@ -139,6 +145,36 @@ python experiments/exp01_single_slider.py
 ```
 
 結果は `output/exp01_single_slider/<YYYYMMDD_HHMMSS>/` に保存されます。
+
+## 実行（第3段階 exp03）
+
+```bash
+# 探索用（デフォルト: fast = Delta 360 点 + Euler + 自動並列）
+python experiments/exp03_sweep_delta_l.py
+
+# IDE ▷ 実行時は config/default_params.py の EXP03_DEFAULT_MODE を変更
+#   EXP03_DEFAULT_MODE = "fast"   # 探索用
+#   EXP03_DEFAULT_MODE = "fine"   # 論文比較用
+
+# 論文比較用（fine = Delta 8000 点 + RK45）
+python experiments/exp03_sweep_delta_l.py --mode fine --workers 4
+
+# デバッグ（直列）
+python experiments/exp03_sweep_delta_l.py --workers 1
+```
+
+結果は `output/exp03_sweep_delta_l/<YYYYMMDD_HHMMSS>/` に保存されます。
+
+| `--mode` | Delta 点数 | 積分 | 用途 |
+|----------|------------|------|------|
+| `fast`（既定） | 360 | Euler | 日常の探索・プロット |
+| `fine` | 8000 | RK45 | 論文 Fig との定量比較 |
+
+## テスト
+
+```bash
+python -m unittest tests.test_single_slider tests.test_exp03_sweep -v
+```
 
 ## アニメーション（オンデマンド）
 

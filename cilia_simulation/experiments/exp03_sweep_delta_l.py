@@ -4,14 +4,24 @@
 目的:
     壁なし2スライダーモデルで位相差 Delta と距離 l を掃引し、
     平均流量 Q(Delta, l) を計算して可視化する。
+
+実行例:
+    python experiments/exp03_sweep_delta_l.py
+    python experiments/exp03_sweep_delta_l.py --mode fine --workers 4
+
+IDE ▷ 実行:
+    config/default_params.py の EXP03_DEFAULT_MODE を "fast" または "fine" に設定する。
+    CLI の --mode はこの値を上書きする。
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 import math
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -21,11 +31,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.default_params import EXP02_DEFAULTS, EXP03_SWEEP_DEFAULTS
-from core.flow_rate import FlowCalculator
-from core.hydrodynamics import TwoSliderMobility
-from core.progress import SweepProgressTracker
-from core.solver import SolverConfig, TwoSliderTimeStepper
+from config.default_params import (
+    EXP02_DEFAULTS,
+    EXP03_DEFAULT_MODE,
+    Exp03Mode,
+    resolve_exp03_config,
+)
+from core.solver import SolverConfig
+from core.sweep import default_worker_count, sweep_with_progress
+from core.two_slider import compute_two_slider_Q
 from core.utils import (
     PlotStyle,
     make_run_directory,
@@ -42,26 +56,63 @@ from core.utils import (
 
 EXP_NAME = "exp03_sweep_delta_l"
 OUTPUT_BASE = PROJECT_ROOT / "output"
-
-SOLVER_METHOD = "RK45"
-SOLVER_RTOL = 1e-8
-SOLVER_ATOL = 1e-10
-N_PERIODS = 10
-N_EVAL_PER_PERIOD = 300
 PLOT_STYLE = PlotStyle()
 PROGRESS_EMA_ALPHA = 0.2
 
 
-def _as_float(name: str) -> float:
-    return float(EXP03_SWEEP_DEFAULTS[name])
+@dataclass(frozen=True)
+class _Exp03Case:
+    """
+    1 ケース分の入力。ProcessPoolExecutor で pickle するためモジュール直下に置く。
+    """
+
+    i_l: int
+    i_d: int
+    l: float
+    delta: float
+    mu: float
+    a: float
+    k: float
+    F_0: float
+    omega: float
+    phi: float
+    h: float
+    s1_0: float
+    s2_0: float
+    solver_config: SolverConfig
 
 
-def _as_int(name: str) -> int:
-    return int(EXP03_SWEEP_DEFAULTS[name])
+def _as_float(sweep_defaults: dict[str, float | int], name: str) -> float:
+    return float(sweep_defaults[name])
 
 
-def _compute_Q_for_one_case(
+def _as_int(sweep_defaults: dict[str, float | int], name: str) -> int:
+    return int(sweep_defaults[name])
+
+
+def _run_one_case(case: _Exp03Case) -> tuple[int, int, float]:
+    """ワーカープロセスから呼ばれる 1 ケース実行。"""
+    Q = compute_two_slider_Q(
+        mu=case.mu,
+        a=case.a,
+        k=case.k,
+        F_0=case.F_0,
+        omega=case.omega,
+        phi=case.phi,
+        h=case.h,
+        l=case.l,
+        delta=case.delta,
+        s1_0=case.s1_0,
+        s2_0=case.s2_0,
+        solver_config=case.solver_config,
+    )
+    return case.i_l, case.i_d, Q
+
+
+def _build_cases(
     *,
+    l_values: np.ndarray,
+    delta_values: np.ndarray,
     mu: float,
     a: float,
     k: float,
@@ -69,57 +120,112 @@ def _compute_Q_for_one_case(
     omega: float,
     phi: float,
     h: float,
-    l: float,
-    delta: float,
     s1_0: float,
     s2_0: float,
     solver_config: SolverConfig,
-) -> float:
-    mobility = TwoSliderMobility(mu=mu, a=a)
-    flow = FlowCalculator(mu=mu, h=h)
-    stepper = TwoSliderTimeStepper(
-        mobility=mobility,
-        omega=omega,
-        k=k,
-        F_0=F_0,
-        phi=phi,
-        l=l,
-        h=h,
-        delta=delta,
-        s1_0=s1_0,
-        s2_0=s2_0,
-        config=solver_config,
-    )
-    result = stepper.run()
-    _, _, Q = flow.compute_two_slider_Q_from_result(
-        result=result,
-        phi=phi,
-        use_steady_window=True,
-    )
-    return float(Q)
+) -> list[_Exp03Case]:
+    cases: list[_Exp03Case] = []
+    for i_l, l in enumerate(l_values):
+        for i_d, delta in enumerate(delta_values):
+            cases.append(
+                _Exp03Case(
+                    i_l=i_l,
+                    i_d=i_d,
+                    l=float(l),
+                    delta=float(delta),
+                    mu=mu,
+                    a=a,
+                    k=k,
+                    F_0=F_0,
+                    omega=omega,
+                    phi=phi,
+                    h=h,
+                    s1_0=s1_0,
+                    s2_0=s2_0,
+                    solver_config=solver_config,
+                )
+            )
+    return cases
 
 
-def run_experiment() -> Path:
+def _progress_kwargs_for_workers(workers: int) -> dict:
+    if workers > 1:
+        return {
+            "update_every_cases": 8,
+            "mininterval": 0.5,
+            "eta_alpha": 0.08,
+            "eta_min_cases": 20,
+        }
+    return {
+        "update_every_cases": 10,
+        "mininterval": 0.5,
+        "eta_alpha": 0.08,
+        "eta_min_cases": 15,
+    }
+
+
+def _sweep_q_map(
+    *,
+    cases: list[_Exp03Case],
+    workers: int,
+    q_map_shape: tuple[int, int],
+) -> np.ndarray:
+    """全ケースを実行し q_map を返す。"""
+    q_map = np.empty(q_map_shape, dtype=np.float64)
+
+    def _store_result(result: tuple[int, int, float]) -> None:
+        i_l, i_d, Q = result
+        q_map[i_l, i_d] = Q
+
+    sweep_with_progress(
+        cases=cases,
+        worker_fn=_run_one_case,
+        workers=workers,
+        on_result=_store_result,
+        desc="exp03 sweep",
+        alpha=PROGRESS_EMA_ALPHA,
+        progress_kwargs=_progress_kwargs_for_workers(workers),
+    )
+    return q_map
+
+
+def run_experiment(
+    *,
+    mode: Exp03Mode = "fast",
+    workers: int | None = None,
+) -> Path:
     """
     Delta-l 掃引を実行し、CSV と図を出力する。
-    """
-    start_time = time.perf_counter()
-    mu = _as_float("mu")
-    a = _as_float("a")
-    k = _as_float("k")
-    F_0 = _as_float("F_0")
-    omega = _as_float("omega")
-    phi = _as_float("phi")
-    h = _as_float("h")
-    s1_0 = _as_float("s1_0")
-    s2_0 = _as_float("s2_0")
 
-    delta_min = _as_float("delta_min")
-    delta_max = _as_float("delta_max")
-    delta_points = _as_int("delta_points")
-    l_min = _as_float("l_min")
-    l_max = _as_float("l_max")
-    l_points = _as_int("l_points")
+    Parameters
+    ----------
+    mode : {"fast", "fine"}
+        掃引解像度と積分設定のプリセット。
+    workers : int, optional
+        並列ワーカー数。None のとき cpu_count - 1。1 で直列。
+    """
+    if workers is None:
+        workers = default_worker_count()
+
+    start_time = time.perf_counter()
+    sweep_defaults, solver_config = resolve_exp03_config(mode)
+
+    mu = _as_float(sweep_defaults, "mu")
+    a = _as_float(sweep_defaults, "a")
+    k = _as_float(sweep_defaults, "k")
+    F_0 = _as_float(sweep_defaults, "F_0")
+    omega = _as_float(sweep_defaults, "omega")
+    phi = _as_float(sweep_defaults, "phi")
+    h = _as_float(sweep_defaults, "h")
+    s1_0 = _as_float(sweep_defaults, "s1_0")
+    s2_0 = _as_float(sweep_defaults, "s2_0")
+
+    delta_min = _as_float(sweep_defaults, "delta_min")
+    delta_max = _as_float(sweep_defaults, "delta_max")
+    delta_points = _as_int(sweep_defaults, "delta_points")
+    l_min = _as_float(sweep_defaults, "l_min")
+    l_max = _as_float(sweep_defaults, "l_max")
+    l_points = _as_int(sweep_defaults, "l_points")
 
     delta_values = np.linspace(
         delta_min,
@@ -136,40 +242,25 @@ def run_experiment() -> Path:
         dtype=np.float64,
     )
 
-    solver_config = SolverConfig(
-        method=SOLVER_METHOD,
-        rtol=SOLVER_RTOL,
-        atol=SOLVER_ATOL,
-        n_periods=N_PERIODS,
-        n_eval_per_period=N_EVAL_PER_PERIOD,
+    cases = _build_cases(
+        l_values=l_values,
+        delta_values=delta_values,
+        mu=mu,
+        a=a,
+        k=k,
+        F_0=F_0,
+        omega=omega,
+        phi=phi,
+        h=h,
+        s1_0=s1_0,
+        s2_0=s2_0,
+        solver_config=solver_config,
     )
-
-    q_map = np.empty((l_values.size, delta_values.size), dtype=np.float64)
-    total_cases = int(l_values.size * delta_values.size)
-    with SweepProgressTracker(
-        total_cases=total_cases,
-        alpha=PROGRESS_EMA_ALPHA,
-        desc="exp03 sweep",
-    ) as progress:
-        for i_l, l in enumerate(l_values):
-            for i_d, delta in enumerate(delta_values):
-                case_start = time.perf_counter()
-                q_map[i_l, i_d] = _compute_Q_for_one_case(
-                    mu=mu,
-                    a=a,
-                    k=k,
-                    F_0=F_0,
-                    omega=omega,
-                    phi=phi,
-                    h=h,
-                    l=float(l),
-                    delta=float(delta),
-                    s1_0=s1_0,
-                    s2_0=s2_0,
-                    solver_config=solver_config,
-                )
-                case_seconds = time.perf_counter() - case_start
-                progress.update(case_seconds=case_seconds)
+    q_map = _sweep_q_map(
+        cases=cases,
+        workers=workers,
+        q_map_shape=(l_values.size, delta_values.size),
+    )
 
     delta_opt_idx = np.argmax(q_map, axis=1)
     delta_opt_values = delta_values[delta_opt_idx]
@@ -184,7 +275,10 @@ def run_experiment() -> Path:
         run_dir / "parameters.json",
         {
             "experiment": EXP_NAME,
-            "defaults": EXP03_SWEEP_DEFAULTS,
+            "mode": mode,
+            "workers": workers,
+            "total_cases": len(cases),
+            "defaults": sweep_defaults,
             "solver": solver_config,
         },
     )
@@ -248,8 +342,12 @@ def run_experiment() -> Path:
     elapsed_seconds = time.perf_counter() - start_time
     summary_lines = [
         f"experiment: {EXP_NAME}",
+        f"mode: {mode}",
+        f"workers: {workers}",
+        f"total_cases: {len(cases)}",
         f"integration_method: {solver_config.method}",
         f"n_periods: {solver_config.n_periods}",
+        f"n_eval_per_period: {solver_config.n_eval_per_period}",
         f"delta_range [rad]: [{delta_min:.8e}, {delta_max:.8e})",
         f"delta_range [deg]: [{math.degrees(delta_min):.6f}, {math.degrees(delta_max):.6f})",
         f"delta_points: {delta_points}",
@@ -269,15 +367,46 @@ def run_experiment() -> Path:
     return run_dir
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="exp03: Delta-l sweep for two-slider model (no wall).",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("fast", "fine"),
+        default=EXP03_DEFAULT_MODE,
+        help=(
+            "fast: coarse Delta grid + Euler. fine: dense grid + RK45. "
+            f"Default from config: EXP03_DEFAULT_MODE={EXP03_DEFAULT_MODE!r}."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Parallel worker count. Default: cpu_count - 1. Use 1 for serial.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    run_dir = run_experiment()
+    args = _parse_args()
+    workers = args.workers if args.workers is not None else default_worker_count()
+    if workers < 1:
+        raise ValueError("--workers must be at least 1.")
+
+    logging.getLogger(__name__).info(
+        "Starting exp03: mode=%s, workers=%d",
+        args.mode,
+        workers,
+    )
+    run_dir = run_experiment(mode=args.mode, workers=workers)
     logging.getLogger(__name__).info("Finished. Results: %s", run_dir)
 
 
 if __name__ == "__main__":
     main()
-

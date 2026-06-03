@@ -8,7 +8,9 @@
 【構成 / Contents】
     - EXP01_DEFAULTS: 第1段階（単一スライダー、壁なし）
     - EXP02_DEFAULTS: 第2段階（2スライダー、Stokeslet）
-    - EXP03_SWEEP_DEFAULTS: 第3段階（Delta-l 掃引）— 未使用・後日追加
+    - EXP03_DEFAULT_MODE: exp03 の IDE ▷ 実行時デフォルト（fast / fine）
+    - EXP03_SOLVER_PRESETS: exp03 用の積分設定（fast / fine）
+    - resolve_exp03_config: mode から掃引辞書と SolverConfig を返す
     - EXP04_DEFAULTS: 第4段階（2スライダー、Blakelet）— 未使用・後日追加
 
 【使い方 / Usage】
@@ -18,11 +20,19 @@
     from config.default_params import EXP01_DEFAULTS
     from core.slider import SliderParameters
     params = SliderParameters(**EXP01_DEFAULTS)
+
+    exp03 では resolve_exp03_config("fast") などを使う。
+    IDE ▷ 実行時は EXP03_DEFAULT_MODE を変更する（--mode で CLI 上書き可）。
 """
 
 from __future__ import annotations
 
 import math
+from typing import Literal
+
+from core.solver import SolverConfig
+
+Exp03Mode = Literal["fast", "fine"]
 
 # ==========================================
 # 第1段階 exp01: 単一スライダー（壁なし）
@@ -70,28 +80,106 @@ EXP02_DEFAULTS: dict[str, float | int] = {
 # 第3段階 exp03: Delta-l 掃引（壁なし）
 # ==========================================
 
-EXP03_SWEEP_DEFAULTS: dict[str, float | int] = {
-  # 固定物理パラメータ（基本は exp02 と同じ）
-  "a": 0.05,               # ビーズ半径 / bead radius
-  "mu": 1.0,               # 粘性係数 / dynamic viscosity
-  "k": 1.0,                # ばね定数 / spring constant
-  "F_0": 1.0,              # 駆動力振幅 / active force amplitude
-  "omega": 2.0 * math.pi,  # 角振動数 / angular frequency
-  "phi": math.pi / 4.0,    # 傾き角 [rad] / tilt angle
-  "h": 1.0,                # 流量式の基準高さ / reference height
-  "s1_0": 0.0,             # スライダー1 初期位置 / initial position of slider 1
-  "s2_0": 0.0,             # スライダー2 初期位置 / initial position of slider 2
+# IDE ▷ 実行（CLI で --mode 未指定）時に使う mode。
+# "fast" = Delta 360 点 + Euler / "fine" = Delta 8000 点 + RK45
+EXP03_DEFAULT_MODE: Exp03Mode = "fine"
 
-  # Delta 掃引範囲（論文の -180deg <= Delta < 180deg に対応）
-  "delta_min": -math.pi,   # 掃引最小値 [rad]
-  "delta_max": math.pi,    # 掃引最大値 [rad]（endpoint=False で max は含めない想定）
-  "delta_points": 8000,      # 掃引点数（5deg刻み相当）
-
-  # スライダー間距離 l 掃引範囲（壁なしの探索用）
-  "l_min": 1.5,            # 掃引最小値
-  "l_max": 6.0,            # 掃引最大値
-  "l_points": 19,          # 掃引点数
+# 物理量と l 掃引範囲は fast / fine で共通。Delta 解像度は mode で変える。
+_EXP03_SWEEP_PHYSICAL: dict[str, float] = {
+  "a": 0.05,
+  "mu": 1.0,
+  "k": 1.0,
+  "F_0": 1.0,
+  "omega": 2.0 * math.pi,
+  "phi": math.pi / 4.0,
+  "h": 1.0,
+  "s1_0": 0.0,
+  "s2_0": 0.0,
+  "delta_min": -math.pi,
+  "delta_max": math.pi,
+  "l_min": 1.5,
+  "l_max": 6.0,
 }
+
+_EXP03_SWEEP_GRID: dict[str, dict[str, int]] = {
+  "fast": {
+    "delta_points": 360,   # 1 deg 刻み（-180 <= Delta < 180）
+    "l_points": 19,
+  },
+  "fine": {
+    "delta_points": 8000,
+    "l_points": 19,
+  },
+}
+
+EXP03_SWEEP_FAST_DEFAULTS: dict[str, float | int] = {
+  **_EXP03_SWEEP_PHYSICAL,
+  **_EXP03_SWEEP_GRID["fast"],
+}
+
+EXP03_SWEEP_FINE_DEFAULTS: dict[str, float | int] = {
+  **_EXP03_SWEEP_PHYSICAL,
+  **_EXP03_SWEEP_GRID["fine"],
+}
+
+# 既存 import との互換（fine = 従来の 8000 点掃引）
+EXP03_SWEEP_DEFAULTS: dict[str, float | int] = EXP03_SWEEP_FINE_DEFAULTS
+
+# exp03 専用: 掃引用積分設定（論文 4.2 は Euler、最終比較は RK45）
+EXP03_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = {
+  "fast": {
+    "method": "EULER",
+    "n_periods": 8,
+    "n_eval_per_period": 150,
+    "rtol": 1e-8,
+    "atol": 1e-10,
+  },
+  "fine": {
+    "method": "RK45",
+    "n_periods": 10,
+    "n_eval_per_period": 300,
+    "rtol": 1e-8,
+    "atol": 1e-10,
+  },
+}
+
+
+def resolve_exp03_config(
+    mode: Exp03Mode = "fast",
+) -> tuple[dict[str, float | int], SolverConfig]:
+    """
+    exp03 の掃引パラメータ辞書と SolverConfig を mode から返す。
+
+    Parameters
+    ----------
+    mode : {"fast", "fine"}
+        fast: 粗い Delta グリッド + 前進 Euler（探索用）。
+        fine: 密な Delta グリッド + RK45（論文比較・高精度用）。
+
+    Returns
+    -------
+    sweep_defaults : dict
+        EXP03_SWEEP_FAST_DEFAULTS または EXP03_SWEEP_FINE_DEFAULTS。
+    solver_config : SolverConfig
+        EXP03_SOLVER_PRESETS に対応する積分設定。
+    """
+    if mode == "fast":
+        sweep_defaults = EXP03_SWEEP_FAST_DEFAULTS
+    elif mode == "fine":
+        sweep_defaults = EXP03_SWEEP_FINE_DEFAULTS
+    else:
+        raise ValueError(f"Unknown exp03 mode: {mode!r}. Use 'fast' or 'fine'.")
+
+    preset = EXP03_SOLVER_PRESETS[mode]
+    solver_config = SolverConfig(
+        method=str(preset["method"]),
+        rtol=float(preset["rtol"]),
+        atol=float(preset["atol"]),
+        n_periods=int(preset["n_periods"]),
+        n_eval_per_period=int(preset["n_eval_per_period"]),
+    )
+    return sweep_defaults, solver_config
+
 
 # ==========================================
 # 第4段階 exp04: 2スライダー（壁あり）— プレースホルダ
