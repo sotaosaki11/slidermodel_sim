@@ -12,6 +12,7 @@
     - EXP03_SOLVER_PRESETS: exp03 用の積分設定（fast / fine）
     - resolve_exp03_config: mode から掃引辞書と SolverConfig を返す
     - EXP04_DEFAULTS: 第4段階（2スライダー、Blakelet）— 未使用・後日追加
+    - 第5段階 exp05: 実験スクリプトのみプレースホルダ（exp04 後に段階実装）
 
 【使い方 / Usage】
     experiments/exp01_single_slider.py などから import し、
@@ -82,7 +83,7 @@ EXP02_DEFAULTS: dict[str, float | int] = {
 
 # IDE ▷ 実行（CLI で --mode 未指定）時に使う mode。
 # "fast" = Delta 360 点 + Euler / "fine" = Delta 8000 点 + RK45
-EXP03_DEFAULT_MODE: Exp03Mode = "fine"
+EXP03_DEFAULT_MODE: Exp03Mode = "fast"
 
 # 物理量と l 掃引範囲は fast / fine で共通。Delta 解像度は mode で変える。
 _EXP03_SWEEP_PHYSICAL: dict[str, float] = {
@@ -130,14 +131,14 @@ EXP03_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = {
   "fast": {
     "method": "EULER",
     "n_periods": 8,
-    "n_eval_per_period": 150,
+    "n_eval_per_period": 40000,
     "rtol": 1e-8,
     "atol": 1e-10,
   },
   "fine": {
     "method": "RK45",
     "n_periods": 10,
-    "n_eval_per_period": 300,
+    "n_eval_per_period": 10000,
     "rtol": 1e-8,
     "atol": 1e-10,
   },
@@ -179,6 +180,14 @@ def resolve_exp03_config(
         n_eval_per_period=int(preset["n_eval_per_period"]),
     )
     return sweep_defaults, solver_config
+
+
+# ==========================================
+# 第5段階 exp05: Delta-theta 掃引（l 固定、x-y 配置角）— プレースホルダ
+# exp04 完了後に段階実装（core 幾何・config・掃引スクリプトは未追加）
+# ==========================================
+
+# EXP05_DEFAULTS / EXP05_SWEEP_* / resolve_exp05_config: 後日追加
 
 
 # ==========================================

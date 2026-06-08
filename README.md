@@ -1,10 +1,10 @@
-# cilia_simulation
+# slidermodel_sim
 
 修士論文第4章の **1次元スライダーモデル**（繊毛簡略化モデル）を Python で段階的に再実装する。  
 論文再現の目標は **正味流量 Q** および **最適位相差 Δ_opt** の再現（exp04 まで）。  
-その先の研究目標は、**l* 固定**のもと x–y 平面内で相対配置角 θ を変化させ、θ に応じた流量最大化戦略の相違を検証すること（exp05、exp04 完了後）。
+その先の研究目標は、**l* 固定**のもと x–y 平面内で相対配置角 θ を変化させ、θ に応じた流量最大化戦略（Δ_opt(θ)）の相違を検証すること（exp05、exp04 完了後）。
 
-GitHub リポジトリトップの README は [`../README.md`](../README.md) に配置（内容同期）。
+ソースコードは [`cilia_simulation/`](cilia_simulation/) 配下に配置。
 
 ## 現段階の進捗
 
@@ -25,7 +25,7 @@ exp03 までの結果を解釈する際は、次の2点を区別する。
 
 exp03 の出力は **定性的トレンド** および **数値パイプラインの検証** に有効。論文 Fig との **厳密な定量一致** は exp04 完了後に評価する。
 
-物理・数学の詳細は [`PHYSICS_REPORT.md`](PHYSICS_REPORT.md) を参照。
+物理・数学の詳細は [`cilia_simulation/PHYSICS_REPORT.md`](cilia_simulation/PHYSICS_REPORT.md) を参照。
 
 ## セットアップ
 
@@ -41,6 +41,8 @@ pip install -r requirements.txt
 
 ## 実行
 
+いずれも `cilia_simulation/` 内で実行する。
+
 ### exp01 — 単一スライダー
 
 ```bash
@@ -55,9 +57,8 @@ python experiments/exp01_single_slider.py
 python experiments/exp02_two_sliders_nowall.py
 ```
 
-**出力先**: `output/exp02_two_sliders_nowall/<YYYYMMDD_HHMMSS>/`
-
-**出力物**: `parameters.json`, `summary.txt`, `trajectory_s1s2.png`, `forces_f1f2.png`, `phase_portrait_s1_vs_s2.png`
+**出力先**: `output/exp02_two_sliders_nowall/<YYYYMMDD_HHMMSS>/`  
+**出力物**: 時系列・相図・Q を含む summary / PNG
 
 ### exp03 — Δ×l 掃引
 
@@ -73,87 +74,61 @@ python experiments/exp03_sweep_delta_l.py --mode fine --workers 4
 python experiments/exp03_sweep_delta_l.py --workers 1
 ```
 
-IDE ▷ 実行時は `config/default_params.py` の `EXP03_DEFAULT_MODE` を変更する。
+IDE ▷ 実行時は `config/default_params.py` の `EXP03_DEFAULT_MODE` を `"fast"` または `"fine"` に設定する。
 
 | `--mode` | Delta 点数 | 積分 | 用途 |
 |----------|------------|------|------|
 | `fast` | 360 | Euler | 日常の探索・プロット |
 | `fine` | 8000 | RK45 | 論文 Fig との定量比較 |
 
-**出力先**: `output/exp03_sweep_delta_l/<YYYYMMDD_HHMMSS>/`
-
-**出力物**:
-
-- `q_delta_l.csv`, `delta_opt_vs_l.csv`, `q_vs_delta_fixed_l.csv`
-- `Q_heatmap_delta_l.png`, `delta_opt_vs_l.png`, `Q_vs_delta_fixed_l.png`
+**出力先**: `output/exp03_sweep_delta_l/<YYYYMMDD_HHMMSS>/`  
+**出力物**: CSV、ヒートマップ、Δ_opt 曲線
 
 ## テスト
 
 ```bash
+cd cilia_simulation
 python -m unittest discover tests -v
 ```
 
 ## ディレクトリ構成
 
 ```
-cilia_simulation/
-├── README.md              # 本ファイル
-├── PHYSICS_REPORT.md      # 物理・数学解説（exp01〜exp03）
-├── .cursorrules           # コーディング規約
-├── requirements.txt
-├── config/
-│   └── default_params.py
-├── core/
-│   ├── slider.py
-│   ├── hydrodynamics.py
-│   ├── solver.py
-│   ├── flow_rate.py
-│   ├── two_slider.py      # 1ケース Q 計算
-│   ├── sweep.py           # 並列パラメータ掃引
-│   ├── progress.py
-│   ├── stokeslet_field.py
-│   ├── animation.py
-│   └── utils.py
-├── experiments/
-│   ├── exp01_single_slider.py
-│   ├── exp02_two_sliders_nowall.py
-│   ├── exp03_sweep_delta_l.py
-│   ├── exp04_two_sliders_wall.py
-│   └── exp05_sweep_delta_theta.py  # プレースホルダ（exp04 後・段階実装）
-├── tests/
-│   ├── test_single_slider.py
-│   ├── test_exp03_sweep.py
-│   ├── test_progress.py
-│   └── test_sweep.py
-├── optionrun/
-│   └── animate_from_run.py
-└── output/                # 実行結果（Git 管理外）
+slidermodel_sim/
+├── README.md                 # 本ファイル（GitHub トップ用）
+└── cilia_simulation/
+    ├── README.md             # cilia_simulation 内作業向け（本ファイルと同期）
+    ├── PHYSICS_REPORT.md     # 物理・数学解説（exp01〜exp03）
+    ├── config/               # デフォルトパラメータ
+    ├── core/                 # 共通ライブラリ（力・移動度・積分・流量・掃引）
+    ├── experiments/          # exp01〜exp05 実行スクリプト（exp04・exp05 はプレースホルダ）
+    ├── tests/
+    ├── optionrun/            # オンデマンド可視化
+    └── output/               # 実行結果（Git 管理外）
 ```
 
 ## exp01 物理モデル（概要）
 
 - 半径 `a` のビーズを、傾き角 `phi` の直線上でスカラー座標 `s_1(t)` により記述する
 - 運動方程式: `ds_1/dt = γ₀ (F₀ cos(ωt) − k s_1)`，`γ₀ = 1/(6πμa)`
-- 瞬時流量（式(2.61) 形式、壁なしのため **指標として** 適用）:  
-  `q_x = (h/(πμ)) F_x`，`F_x = f_total cos(phi)`
-- **成功基準**: 1周期平均 `Q ≈ 0`、定常振動の位相遅れが理論値と一致
+- 瞬時流量（式(2.61) 形式）: `q_x = (h/(πμ)) F_x`，`F_x = f_total cos(phi)`
+- 単一スライダーでは 1周期平均 **Q ≈ 0**
 
 ## exp02/exp03 — 2体モデル（要点）
 
 - **駆動力**: `f_active,1 = F₀ cos(ωt + Δ)`，`f_active,2 = F₀ cos(ωt)`（スライダー1に +Δ）
 - **配置**: `r1_base = (−l/2, 0, h)`，`r2_base = (+l/2, 0, h)`
-- **移動度**: 自己項 `M_aa = γ₀ I`、交差項 Oseen `M_ab = J/(8πμR)`，`J = I + (R⊗R)/R²`
-- **拘束**: `ṙ_i · e_s⊥ = 0` より Lagrange 乗数 λ₁, λ₂ を決定する
+- **相互作用**: Oseen テンソル + 直線拘束 `ṙ_i · e_s⊥ = 0`
 - **2体流量**: `q_x = [z₁ F_x,1 + z₂ F_x,2] / (πμ)`，`z_i = h − s_i sin(phi)`
 
 ## アニメーション（オンデマンド）
 
 ```bash
+cd cilia_simulation
 python optionrun/animate_from_run.py
 python optionrun/animate_from_run.py --run-dir output/exp01_single_slider/<YYYYMMDD_HHMMSS>
 ```
 
-**オプション**: `--gif`, `--frames 60`, `--loop-count 2`  
 MP4 生成には [ffmpeg](https://ffmpeg.org/) を要する場合あり。
 
 ## 参照
@@ -162,7 +137,6 @@ MP4 生成には [ffmpeg](https://ffmpeg.org/) を要する場合あり。
 - 式(2.39)(2.40): Oseen テンソル
 - 式(2.61)(2.62)(4.65): 瞬時・平均流量
 - 式(4.3): 駆動力
-- 4.3.6 節: 単一スライダーで Q₀=0
 
 ## License
 
