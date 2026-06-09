@@ -523,7 +523,7 @@ def plot_phase_portrait_s1_s2(
     axis.set_xlabel(dimless_label("s_1"), fontsize=plot_style.font_size)
     axis.set_ylabel(dimless_label("s_2"), fontsize=plot_style.font_size)
     axis.set_title(
-        r"Phase portrait $s_2^{*}$ vs $s_1^{*}$ (last {:d} periods)".format(n_periods),
+        r"Phase portrait $s_2^{{*}}$ vs $s_1^{{*}}$ (last {:d} periods)".format(n_periods),
         fontsize=plot_style.font_size,
     )
     axis.grid(True, alpha=plot_style.grid_alpha)

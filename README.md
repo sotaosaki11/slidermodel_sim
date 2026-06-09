@@ -1,8 +1,8 @@
 # slidermodel_sim
 
 修士論文第4章の **1次元スライダーモデル**（繊毛簡略化モデル）を Python で段階的に再実装する。
-論文再現の目標は **正味流量 Q** および **最適位相差 Δ_opt** の再現（exp04 まで）。
-その先の研究目標は、**l\* 固定**のもと x–y 平面内で相対配置角 θ を変化させ、θ に応じた流量最大化戦略（Δ_opt(θ)）の相違を検証すること（exp05、exp04 完了後）。
+論文再現の目標は **正味流量 Q** および **最適位相差 Δ_opt** の再現（exp05 まで）。
+その先の研究目標は、**l\* 固定**のもと x–y 平面内で相対配置角 θ を変化させ、θ に応じた流量最大化戦略（Δ_opt(θ)）の相違を検証すること（exp06、exp05 完了後）。
 
 ソースコードは [`cilia_simulation/`](cilia_simulation/) 配下に配置。
 
@@ -13,17 +13,18 @@
 | exp01 | `experiments/exp01_single_slider.py` | 完了 | 単一スライダー、Q≈0 検証 |
 | exp02 | `experiments/exp02_two_sliders_nowall.py` | 完了 | 2本スライダー、Oseen 相互作用 |
 | exp03 | `experiments/exp03_sweep_delta_l.py` | 完了 | Δ×l 掃引、Q(Δ,l)、Δ_opt(l) |
-| exp04 | `experiments/exp04_two_sliders_wall.py` | 未実装 | 壁あり Blakelet（論文最終形） |
-| exp05 | `experiments/exp05_sweep_delta_theta.py` | 未実装 | Δ×θ 掃引（l 固定）— **exp04 後に実装** |
+| exp04 | `experiments/exp04_two_sliders_wall.py` | 完了 | 壁あり Blakelet（単点検証） |
+| exp05 | `experiments/exp05_sweep_delta_l_wall.py` | 完了 | 壁あり Blakelet Δ×l 掃引 |
+| exp06 | `experiments/exp06_sweep_delta_theta.py` | 未実装 | Δ×θ 掃引（l 固定）— **exp05 後に実装** |
 
 ### 現モデルの限界
 
-exp03 までの結果を解釈する際は、次の2点を区別する。
+| 段階 | 移動度（力→速度） | 流量 $Q$ |
+|------|-------------------|----------|
+| exp01〜03 | Oseen（壁なし） | 式(2.61)（壁 z=0 遠方近似） |
+| **exp04** | **Blakelet（壁 z=0）** | 式(2.61)(4.65)（移動度と整合） |
 
-- **移動度**: 壁なし **Oseen / Stokeslet** を採用（論文最終形の Blakelet ではない）
-- **流量 Q**: 論文 式(2.61) 系の **壁 z=0 遠方近似** を先行適用（exp04 で物理的整合を図る）
-
-exp03 の出力は **定性的トレンド** および **数値パイプラインの検証** に有効。論文 Fig との **厳密な定量一致** は exp04 完了後に評価する。
+論文 Fig との **定量比較** は exp05 の **fine 掃引**（`--mode fine`）で評価する。
 
 物理・数学の詳細は [`cilia_simulation/PHYSICS_REPORT.md`](cilia_simulation/PHYSICS_REPORT.md) を参照。
 
@@ -84,6 +85,29 @@ IDE ▷ 実行時は `config/default_params.py` の `EXP03_DEFAULT_MODE` を `"f
 **出力先**: `output/exp03_sweep_delta_l/<YYYYMMDD_HHMMSS>/`
 **出力物**: CSV、ヒートマップ、Δ_opt 曲線
 
+### exp04 — 2本スライダー（壁あり Blakelet、単点）
+
+```bash
+python experiments/exp04_two_sliders_wall.py
+```
+
+パラメータ: `config/default_params.py` の `EXP04_DEFAULTS`（exp02 単点と同一）。積分: `EXP04_SOLVER_PRESET`（RK45, 10 周期）。
+
+**出力先**: `output/exp04_two_sliders_wall/<YYYYMMDD_HHMMSS>/`
+
+**出力物**: `parameters.json`, `summary.txt`, 時系列・力・相図の PNG。`summary.txt` に `Q_blakelet` と Oseen 参考値 `Q_oseen_reference` を記録。
+
+### exp05 — Δ×l 掃引（壁あり Blakelet）
+
+```bash
+python experiments/exp05_sweep_delta_l_wall.py --mode fast
+python experiments/exp05_sweep_delta_l_wall.py --mode fine --workers 4
+```
+
+IDE ▷ 実行時は `config/default_params.py` の `EXP05_DEFAULT_MODE` を変更する。
+
+**出力先**: `output/exp05_sweep_delta_l_wall/<YYYYMMDD_HHMMSS>/`
+
 ## テスト
 
 ```bash
@@ -98,10 +122,10 @@ slidermodel_sim/
 ├── README.md                 # 本ファイル（GitHub トップ用）
 └── cilia_simulation/
     ├── README.md             # cilia_simulation 内作業向け（本ファイルと同期）
-    ├── PHYSICS_REPORT.md     # 物理・数学解説（exp01〜exp03）
+    ├── PHYSICS_REPORT.md     # 物理・数学解説（exp01〜exp05）
     ├── config/               # デフォルトパラメータ
     ├── core/                 # 共通ライブラリ（力・移動度・積分・流量・掃引）
-    ├── experiments/          # exp01〜exp05 実行スクリプト（exp04・exp05 はプレースホルダ）
+    ├── experiments/          # exp01〜exp06（exp05 まで完了、exp06 はプレースホルダ）
     ├── tests/
     ├── optionrun/            # オンデマンド可視化
     └── output/               # 実行結果（Git 管理外）
@@ -114,12 +138,17 @@ slidermodel_sim/
 - 瞬時流量（式(2.61) 形式）: `q_x = (h/(πμ)) F_x`，`F_x = f_total cos(phi)`
 - 単一スライダーでは 1周期平均 **Q ≈ 0**
 
-## exp02/exp03 — 2体モデル（要点）
+## exp02/exp03 — 2体モデル（要点・壁なし）
 
 - **駆動力**: `f_active,1 = F₀ cos(ωt + Δ)`，`f_active,2 = F₀ cos(ωt)`（スライダー1に +Δ）
 - **配置**: `r1_base = (−l/2, 0, h)`，`r2_base = (+l/2, 0, h)`
 - **相互作用**: Oseen テンソル + 直線拘束 `ṙ_i · e_s⊥ = 0`
 - **2体流量**: `q_x = [z₁ F_x,1 + z₂ F_x,2] / (πμ)`，`z_i = h − s_i sin(phi)`
+
+## exp04 — 2体モデル（壁あり Blakelet、単点）
+
+- **移動度**: `BlakeletTwoSliderMobility`（式(2.44)(2.51)、式(4.4)）
+- **流量・拘束**: exp02 と同型。`compute_two_slider_Q_blakelet` / `exp04_two_sliders_wall.py`
 
 ## アニメーション（オンデマンド）
 
@@ -149,8 +178,8 @@ Research and educational use is permitted. Contact the author for other uses.
 # slidermodel_sim (English)
 
 A staged Python reimplementation of the **1D slider model** (a simplified cilia model) from Chapter 4 of the master's thesis.
-The paper-reproduction goal is to reproduce the **net flow rate Q** and the **optimal phase difference Δ_opt** (through exp04).
-The subsequent research goal is, with **l\* fixed**, to vary the relative placement angle θ in the x–y plane and verify how the flow-maximization strategy differs with θ (Δ_opt(θ)) — exp05, after exp04 is complete.
+The paper-reproduction goal is to reproduce the **net flow rate Q** and the **optimal phase difference Δ_opt** (through exp05).
+The subsequent research goal is, with **l\* fixed**, to vary the relative placement angle θ in the x–y plane and verify how the flow-maximization strategy differs with θ (Δ_opt(θ)) — exp06, after exp05 is complete.
 
 The source code is located under [`cilia_simulation/`](cilia_simulation/).
 
@@ -161,17 +190,18 @@ The source code is located under [`cilia_simulation/`](cilia_simulation/).
 | exp01 | `experiments/exp01_single_slider.py` | Done | Single slider, Q≈0 verification |
 | exp02 | `experiments/exp02_two_sliders_nowall.py` | Done | Two sliders, Oseen interaction |
 | exp03 | `experiments/exp03_sweep_delta_l.py` | Done | Δ×l sweep, Q(Δ,l), Δ_opt(l) |
-| exp04 | `experiments/exp04_two_sliders_wall.py` | Not implemented | With-wall Blakelet (final paper form) |
-| exp05 | `experiments/exp05_sweep_delta_theta.py` | Not implemented | Δ×θ sweep (l fixed) — **implement after exp04** |
+| exp04 | `experiments/exp04_two_sliders_wall.py` | Done | With-wall Blakelet (single-point validation) |
+| exp05 | `experiments/exp05_sweep_delta_l_wall.py` | Done | With-wall Blakelet Δ×l sweep |
+| exp06 | `experiments/exp06_sweep_delta_theta.py` | Not implemented | Δ×θ sweep (l fixed) — **implement after exp05** |
 
 ### Limitations of the Current Model
 
-When interpreting the results through exp03, distinguish the following two points.
+| Stage | Mobility (force→velocity) | Flow rate $Q$ |
+|-------|---------------------------|---------------|
+| exp01–03 | Oseen (no wall) | Eq. (2.61) far-field at wall z=0 |
+| **exp04** | **Blakelet (wall z=0)** | Eq. (2.61)(4.65) (consistent with mobility) |
 
-- **Mobility**: Uses the wall-free **Oseen / Stokeslet** (not the Blakelet of the final paper form)
-- **Flow rate Q**: Applies the **far-field approximation at wall z=0** of the paper's Eq. (2.61) family in advance (physical consistency to be addressed in exp04)
-
-The exp03 output is useful for **qualitative trends** and for **validating the numerical pipeline**. **Strict quantitative agreement** with the paper's figures is to be evaluated after exp04 is complete.
+**Quantitative comparison** with the paper's figures uses the exp05 **fine sweep** (`--mode fine`).
 
 See [`cilia_simulation/PHYSICS_REPORT.md`](cilia_simulation/PHYSICS_REPORT.md) for the physical and mathematical details.
 
@@ -232,6 +262,29 @@ When running via the IDE ▷ button, set `EXP03_DEFAULT_MODE` in `config/default
 **Output**: `output/exp03_sweep_delta_l/<YYYYMMDD_HHMMSS>/`
 **Artifacts**: CSV, heatmap, Δ_opt curve
 
+### exp04 — Two Sliders (With-Wall Blakelet, Single Point)
+
+```bash
+python experiments/exp04_two_sliders_wall.py
+```
+
+Parameters: `EXP04_DEFAULTS` in `config/default_params.py` (same single point as exp02). Integration: `EXP04_SOLVER_PRESET` (RK45, 10 periods).
+
+**Output**: `output/exp04_two_sliders_wall/<YYYYMMDD_HHMMSS>/`
+
+**Artifacts**: `parameters.json`, `summary.txt`, trajectory/force/phase PNG. `summary.txt` records `Q_blakelet` and Oseen reference `Q_oseen_reference`.
+
+### exp05 — Δ×l Sweep (With-Wall Blakelet)
+
+```bash
+python experiments/exp05_sweep_delta_l_wall.py --mode fast
+python experiments/exp05_sweep_delta_l_wall.py --mode fine --workers 4
+```
+
+When running via the IDE ▷ button, set `EXP05_DEFAULT_MODE` in `config/default_params.py`.
+
+**Output**: `output/exp05_sweep_delta_l_wall/<YYYYMMDD_HHMMSS>/`
+
 ## Tests
 
 ```bash
@@ -246,10 +299,10 @@ slidermodel_sim/
 ├── README.md                 # This file (for the GitHub top page)
 └── cilia_simulation/
     ├── README.md             # For work inside cilia_simulation (kept in sync with this file)
-    ├── PHYSICS_REPORT.md     # Physics and math explanation (exp01–exp03)
+    ├── PHYSICS_REPORT.md     # Physics and math explanation (exp01–exp05)
     ├── config/               # Default parameters
     ├── core/                 # Shared libraries (force, mobility, integration, flow, sweep)
-    ├── experiments/          # exp01–exp05 run scripts (exp04 and exp05 are placeholders)
+    ├── experiments/          # exp01–exp06 (through exp05 done; exp06 placeholder)
     ├── tests/
     ├── optionrun/            # On-demand visualization
     └── output/               # Run results (not under Git management)

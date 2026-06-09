@@ -2,7 +2,7 @@
 デフォルト実数パラメータの一括管理 / Central default numeric parameters.
 
 【目的 / Purpose】
-    全実験段階（exp01〜exp04）で使う物理・数値パラメータの実数値を
+    全実験段階（exp01〜exp06）で使う物理・数値パラメータの実数値を
     1か所に集約し、マジックナンバーの散在を防ぐ。
 
 【構成 / Contents】
@@ -11,8 +11,9 @@
     - EXP03_DEFAULT_MODE: exp03 の IDE ▷ 実行時デフォルト（fast / fine）
     - EXP03_SOLVER_PRESETS: exp03 用の積分設定（fast / fine）
     - resolve_exp03_config: mode から掃引辞書と SolverConfig を返す
-    - EXP04_DEFAULTS: 第4段階（2スライダー、Blakelet）— 未使用・後日追加
-    - 第5段階 exp05: 実験スクリプトのみプレースホルダ（exp04 後に段階実装）
+    - EXP04_DEFAULTS / EXP04_SOLVER_PRESET: 第4段階単点（Blakelet）
+    - EXP05_DEFAULT_MODE / resolve_exp05_config: 第5段階 Δ×l 掃引（fast / fine）
+    - 第6段階 exp06: 実験スクリプトのみプレースホルダ（exp05 後に段階実装）
 
 【使い方 / Usage】
     experiments/exp01_single_slider.py などから import し、
@@ -34,6 +35,7 @@ from typing import Literal
 from core.solver import SolverConfig
 
 Exp03Mode = Literal["fast", "fine"]
+Exp05Mode = Literal["fast", "fine"]
 
 # ==========================================
 # 第1段階 exp01: 単一スライダー（壁なし）
@@ -182,16 +184,156 @@ def resolve_exp03_config(
     return sweep_defaults, solver_config
 
 
-# ==========================================
-# 第5段階 exp05: Delta-theta 掃引（l 固定、x-y 配置角）— プレースホルダ
-# exp04 完了後に段階実装（core 幾何・config・掃引スクリプトは未追加）
-# ==========================================
-
-# EXP05_DEFAULTS / EXP05_SWEEP_* / resolve_exp05_config: 後日追加
-
 
 # ==========================================
-# 第4段階 exp04: 2スライダー（壁あり）— プレースホルダ
+# 第4段階 exp04: 2スライダー（壁 z=0 あり, Blakelet）— 単点検証
 # ==========================================
 
-# EXP04_DEFAULTS: dict[str, float] = { ... }
+# 物理パラメータは exp02 単点と同一（Oseen vs Blakelet の比較用）。
+# 移動度のみ BlakeletTwoSliderMobility（論文 式(4.4)）に差し替える。
+EXP04_DEFAULTS: dict[str, float | int] = {
+  "a": 0.05,
+  "mu": 1.0,
+  "k": 1.0,
+  "F_0": 1.0,
+  "omega": 2.0 * math.pi,
+  "phi": math.pi / 4.0,
+  "h": 1.0,
+  "s1_0": 0.0,
+  "s2_0": 0.0,
+  "l": 2.0,
+  "delta": math.pi / 2.0,
+}
+
+# exp04 単点: exp02 と同型（RK45, 10 周期, 300 点/周期）
+EXP04_SOLVER_PRESET: dict[str, float | int | str] = {
+  "method": "RK45",
+  "n_periods": 10,
+  "n_eval_per_period": 300,
+  "rtol": 1e-8,
+  "atol": 1e-10,
+}
+
+
+def resolve_exp04_solver_config() -> SolverConfig:
+    """
+    exp04 単点実験用の SolverConfig を返す。
+
+    Returns
+    -------
+    SolverConfig
+        EXP04_SOLVER_PRESET に対応する積分設定。
+    """
+    preset = EXP04_SOLVER_PRESET
+    return SolverConfig(
+        method=str(preset["method"]),
+        rtol=float(preset["rtol"]),
+        atol=float(preset["atol"]),
+        n_periods=int(preset["n_periods"]),
+        n_eval_per_period=int(preset["n_eval_per_period"]),
+    )
+
+
+# exp05 Δ×l 掃引（Blakelet）。グリッド範囲は exp03 と共通、積分は Blakelet 上で実行。
+EXP05_DEFAULT_MODE: Exp05Mode = "fast"
+
+_EXP05_SWEEP_PHYSICAL: dict[str, float] = {
+  "a": 0.05,
+  "mu": 1.0,
+  "k": 1.0,
+  "F_0": 1.0,
+  "omega": 2.0 * math.pi,
+  "phi": math.pi / 4.0,
+  "h": 1.0,
+  "s1_0": 0.0,
+  "s2_0": 0.0,
+  "delta_min": -math.pi,
+  "delta_max": math.pi,
+  "l_min": 1.5,
+  "l_max": 6.0,
+}
+
+_EXP05_SWEEP_GRID: dict[str, dict[str, int]] = {
+  "fast": {
+    "delta_points": 360,
+    "l_points": 19,
+  },
+  "fine": {
+    "delta_points": 8000,
+    "l_points": 19,
+  },
+}
+
+EXP05_SWEEP_FAST_DEFAULTS: dict[str, float | int] = {
+  **_EXP05_SWEEP_PHYSICAL,
+  **_EXP05_SWEEP_GRID["fast"],
+}
+
+EXP05_SWEEP_FINE_DEFAULTS: dict[str, float | int] = {
+  **_EXP05_SWEEP_PHYSICAL,
+  **_EXP05_SWEEP_GRID["fine"],
+}
+
+EXP05_SWEEP_DEFAULTS: dict[str, float | int] = EXP05_SWEEP_FINE_DEFAULTS
+
+EXP05_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = {
+  "fast": {
+    "method": "EULER",
+    "n_periods": 8,
+    "n_eval_per_period": 40000,
+    "rtol": 1e-8,
+    "atol": 1e-10,
+  },
+  "fine": {
+    "method": "RK45",
+    "n_periods": 10,
+    "n_eval_per_period": 10000,
+    "rtol": 1e-8,
+    "atol": 1e-10,
+  },
+}
+
+
+def resolve_exp05_config(
+    mode: Exp05Mode = "fast",
+) -> tuple[dict[str, float | int], SolverConfig]:
+    """
+    exp05 Δ×l 掃引のパラメータ辞書と SolverConfig を mode から返す。
+
+    Parameters
+    ----------
+    mode : {"fast", "fine"}
+        fast: 粗い Delta グリッド + 前進 Euler（探索用）。
+        fine: 密な Delta グリッド + RK45（論文比較・高精度用）。
+
+    Returns
+    -------
+    sweep_defaults : dict
+        EXP05_SWEEP_FAST_DEFAULTS または EXP05_SWEEP_FINE_DEFAULTS。
+    solver_config : SolverConfig
+        EXP05_SOLVER_PRESETS に対応する積分設定。
+    """
+    if mode == "fast":
+        sweep_defaults = EXP05_SWEEP_FAST_DEFAULTS
+    elif mode == "fine":
+        sweep_defaults = EXP05_SWEEP_FINE_DEFAULTS
+    else:
+        raise ValueError(f"Unknown exp05 mode: {mode!r}. Use 'fast' or 'fine'.")
+
+    preset = EXP05_SOLVER_PRESETS[mode]
+    solver_config = SolverConfig(
+        method=str(preset["method"]),
+        rtol=float(preset["rtol"]),
+        atol=float(preset["atol"]),
+        n_periods=int(preset["n_periods"]),
+        n_eval_per_period=int(preset["n_eval_per_period"]),
+    )
+    return sweep_defaults, solver_config
+
+
+# ==========================================
+# 第6段階 exp06: Delta-theta 掃引（l 固定、x-y 配置角）— プレースホルダ
+# exp05 完了後に段階実装（core 幾何・config・掃引スクリプトは未追加）
+# ==========================================
+
+# EXP06_DEFAULTS / EXP06_SWEEP_* / resolve_exp06_config: 後日追加

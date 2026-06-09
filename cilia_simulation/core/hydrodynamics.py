@@ -14,9 +14,9 @@
     - Stokes drag: 6 pi mu a v = F  →  v = gamma_0 F,  gamma_0 = 1/(6 pi mu a)
     - 運動方程式（第1段階）: ds_1/dt = gamma_0 * f_total(t)
 
-【第2・第3段階での拡張 / Future extension】
-    - stokeslet_mobility_matrix (2 sliders, no wall)
-    - blakelet_mobility_matrix (2 sliders, wall at z=0)
+【第2・第4段階での拡張 / Extension】
+    - TwoSliderMobility (2 sliders, no wall, Oseen)
+    - BlakeletTwoSliderMobility (2 sliders, wall at z=0, Blakelet)
 """
 
 from __future__ import annotations
@@ -320,6 +320,274 @@ class TwoSliderMobility:
         F2 = f_vec2 + lambda2 * esp
         rdot1 = M_aa @ F1 + M_ab_12 @ F2
         rdot2 = M_ab_21 @ F1 + M_aa @ F2
+
+        ds1_dt = float(rdot1 @ es)
+        ds2_dt = float(rdot2 @ es)
+        return ds1_dt, ds2_dt
+
+
+# ==========================================
+# 4. 第4段階: 2スライダー移動度（壁 z=0, Blakelet, 拘束付き）
+# ==========================================
+
+
+def _as_position3(r: ArrayLike, name: str) -> NDArray[np.float64]:
+    """3次元位置ベクトルを (3,) ndarray に正規化する。"""
+    arr = np.asarray(r, dtype=np.float64)
+    if arr.shape != (3,):
+        raise ValueError(f"{name} must be a 3D vector with shape (3,).")
+    return arr
+
+
+def wall_reflection_mobility(
+    z: float,
+    *,
+    mu: float,
+    a: float,
+) -> NDArray[np.float64]:
+    """
+    壁 z=0 に対する自己移動度の反射寄与を返す / Wall self-mobility correction.
+
+    論文 Eq.(2.51)(2.52): 正味の自己モビリティは
+
+        M_aa = (1/(6 pi mu a)) I + M_hat
+
+    ここで h = z/a とし、本関数は M_hat（3x3）を返す。
+    z はビーズ中心の壁法線座標（z > 0 を想定）。
+
+    Notes
+    -----
+    Faxén 演算子 F_x F_y は自己項では Jw の評価に含まれるが、
+    式(2.51) は既にその結果を成分で与えている。
+    """
+    if z <= 0.0:
+        raise ValueError("z must be positive for wall reflection mobility.")
+    if mu <= 0.0:
+        raise ValueError("mu must be positive.")
+    if a <= 0.0:
+        raise ValueError("a must be positive.")
+
+    h = z / a
+    h_inv = 1.0 / h
+    h_inv3 = h_inv**3
+    h_inv5 = h_inv**5
+
+    # 式(2.51) の係数（6 pi mu a で無次元化された反射寄与）
+    coeff_tangent = -(1.0 / 16.0) * (9.0 * h_inv - 2.0 * h_inv3 + h_inv5)
+    coeff_normal = -(1.0 / 8.0) * (9.0 * h_inv - 4.0 * h_inv3 + h_inv5)
+
+    M_hat = np.zeros((3, 3), dtype=np.float64)
+    for i in range(3):
+        for j in range(3):
+            if i == 2 and j == 2:
+                M_hat[i, j] = coeff_normal
+            elif i != 2 and j != 2:
+                M_hat[i, j] = coeff_tangent if i == j else 0.0
+            # i=2,j!=2 および i!=2,j=2 は 0 のまま
+    return M_hat
+
+
+def blakelet_mobility_tensor(
+    r_obs: ArrayLike,
+    r_source: ArrayLike,
+    *,
+    mu: float,
+) -> NDArray[np.float64]:
+    """
+    Blakelet 移動度テンソル G(r_obs, r_source) を返す。
+
+    論文 Eq.(2.44)(4.17): 観測点 r、力の作用点 r_0 (= r_source) に対し
+
+        8 pi mu G_ij = delta_ij/rho + rho_i rho_j/rho^3
+                       - delta_ij/R - R_i R_j/R^3
+                       + 2 z_0^2 (P_ij/R^3 - 3 R_i Rtilde_j/R^5)
+                       - 2 z_0 (P_i3 R_j/R^3 - delta_i3 Rtilde_j/R^5
+                                 - 3 R_i R_3 Rtilde_j/R^5)
+
+    ここで rho = r - r_0, R = r - r_I, r_I = (x_0, y_0, -z_0),
+    P = diag(1,1,-1), Rtilde = P @ R。
+
+    Parameters
+    ----------
+    r_obs : array_like, shape (3,)
+        速度を評価する点（観測点）。
+    r_source : array_like, shape (3,)
+        力が作用する点（z_0 > 0 を想定）。
+    mu : float
+        粘性係数。
+
+    Returns
+    -------
+    ndarray, shape (3, 3)
+        移動度テンソル G。速度は rdot = G @ F。
+
+    Notes
+    -----
+    exp02/exp03 の Oseen 相互項と同様、相互項では Faxén 演算子 F_x F_y を
+    省略し G を直接使用する（遠距離・点粒子近似）。論文 Eq.(2.50) との差分は
+    コメントで明記する。
+    """
+    if mu <= 0.0:
+        raise ValueError("mu must be positive.")
+
+    r = _as_position3(r_obs, "r_obs")
+    r0 = _as_position3(r_source, "r_source")
+    z0 = float(r0[2])
+    if z0 <= 0.0:
+        raise ValueError("r_source z-coordinate must be positive (above the wall).")
+
+    rho_vec = r - r0
+    r_image = np.array([r0[0], r0[1], -r0[2]], dtype=np.float64)
+    R_vec = r - r_image
+    R_tilde = np.array([R_vec[0], R_vec[1], -R_vec[2]], dtype=np.float64)
+
+    rho = float(np.linalg.norm(rho_vec))
+    R_norm = float(np.linalg.norm(R_vec))
+    if rho <= 0.0:
+        raise ValueError("Observation point must not coincide with force location.")
+    if R_norm <= 0.0:
+        raise ValueError("Observation point must not coincide with image location.")
+
+    rho3 = rho**3
+    rho5 = rho**5
+    R3 = R_norm**3
+    R5 = R_norm**5
+
+    G = np.zeros((3, 3), dtype=np.float64)
+    for i in range(3):
+        for j in range(3):
+            stokes = (1.0 if i == j else 0.0) / rho + rho_vec[i] * rho_vec[j] / rho3
+            image = (1.0 if i == j else 0.0) / R_norm + R_vec[i] * R_vec[j] / R3
+
+            # P = diag(1,1,-1)。P_ij は対角のみ非ゼロ。
+            P_ij = 1.0 if (i == j and i != 2) else (-1.0 if i == j == 2 else 0.0)
+            # P_i3 は (i,3) 成分（列 3 = インデックス 2）× R_j
+            P_i3 = -1.0 if i == 2 else 0.0
+            delta_i3 = 1.0 if i == 2 else 0.0
+
+            sd_term = 2.0 * z0 * z0 * (P_ij / R3 - 3.0 * R_vec[i] * R_tilde[j] / R5)
+            dip_term = 2.0 * z0 * (
+                P_i3 * R_vec[j] / R3
+                - delta_i3 * R_tilde[j] / R5
+                - 3.0 * R_vec[i] * R_vec[2] * R_tilde[j] / R5
+            )
+
+            G[i, j] = (stokes - image + sd_term - dip_term) / (8.0 * math.pi * mu)
+
+    return G
+
+
+@dataclass(frozen=True)
+class BlakeletTwoSliderMobility:
+    """
+    2スライダー（壁 z=0 あり）を Blakelet と拘束条件で結ぶ移動度モデル。
+
+    Notes
+    -----
+    論文 Eq.(4.4)(4.5) の数値実装（論文最終形）:
+    - 自己モビリティ: M_aa = gamma0 I + M_hat(z/a)  … Eq.(2.51)(2.52)
+    - 交差モビリティ: M_ab = G(r_i, r_j)            … Eq.(2.44)(4.17)
+    - 拘束: rdot_i · e_s_perp = 0（Eq.(4.5) の 2x2 連立）
+
+    exp02 の TwoSliderMobility と API を揃え、TwoSliderTimeStepper から
+    そのまま差し替え可能とする。
+    """
+
+    mu: float
+    a: float
+
+    def __post_init__(self) -> None:
+        if self.mu <= 0.0:
+            raise ValueError("mu must be positive.")
+        if self.a <= 0.0:
+            raise ValueError("a must be positive.")
+
+    @property
+    def gamma_0(self) -> float:
+        """自由空間の自己移動度 gamma_0 = 1/(6*pi*mu*a)。"""
+        return 1.0 / (6.0 * math.pi * self.mu * self.a)
+
+    def self_mobility(self, r: ArrayLike) -> NDArray[np.float64]:
+        """
+        位置 r における自己移動度 M_aa(r) を返す。
+
+        M_aa = gamma_0 I + M_hat(z/a),  z = r[2]。
+        """
+        ri = _as_position3(r, "r")
+        z = float(ri[2])
+        return self.gamma_0 * np.eye(3, dtype=np.float64) + wall_reflection_mobility(
+            z, mu=self.mu, a=self.a
+        )
+
+    def cross_mobility(
+        self,
+        r_i: ArrayLike,
+        r_j: ArrayLike,
+    ) -> NDArray[np.float64]:
+        """
+        粒子 i の速度に対する粒子 j の力の寄与 M_ij = G(r_i, r_j)。
+        """
+        return blakelet_mobility_tensor(r_i, r_j, mu=self.mu)
+
+    def compute_velocities(
+        self,
+        *,
+        s1: float,
+        s2: float,
+        r1: ArrayLike,
+        r2: ArrayLike,
+        e_s: ArrayLike,
+        e_s_perp: ArrayLike,
+        f_active1: float,
+        f_active2: float,
+        k: float,
+    ) -> tuple[float, float]:
+        """
+        拘束付き2スライダー速度を返す（Blakelet 版）。
+
+        TwoSliderMobility.compute_velocities と同一の拘束解法（Eq.(4.5)）。
+        """
+        if k < 0.0:
+            raise ValueError("k must be non-negative.")
+
+        es = np.asarray(e_s, dtype=np.float64)
+        esp = np.asarray(e_s_perp, dtype=np.float64)
+        if es.shape != (3,) or esp.shape != (3,):
+            raise ValueError("e_s and e_s_perp must be vectors with shape (3,).")
+
+        r1_arr = _as_position3(r1, "r1")
+        r2_arr = _as_position3(r2, "r2")
+
+        M_aa_1 = self.self_mobility(r1_arr)
+        M_aa_2 = self.self_mobility(r2_arr)
+        M_ab_12 = self.cross_mobility(r1_arr, r2_arr)
+        M_ab_21 = self.cross_mobility(r2_arr, r1_arr)
+
+        f_total1 = float(f_active1 - k * s1)
+        f_total2 = float(f_active2 - k * s2)
+        f_vec1 = f_total1 * es
+        f_vec2 = f_total2 * es
+
+        A = np.array(
+            [
+                [esp @ (M_aa_1 @ esp), esp @ (M_ab_12 @ esp)],
+                [esp @ (M_ab_21 @ esp), esp @ (M_aa_2 @ esp)],
+            ],
+            dtype=np.float64,
+        )
+        b = np.array(
+            [
+                -(esp @ (M_aa_1 @ f_vec1 + M_ab_12 @ f_vec2)),
+                -(esp @ (M_ab_21 @ f_vec1 + M_aa_2 @ f_vec2)),
+            ],
+            dtype=np.float64,
+        )
+        lambda1, lambda2 = np.linalg.solve(A, b)
+
+        F1 = f_vec1 + lambda1 * esp
+        F2 = f_vec2 + lambda2 * esp
+        rdot1 = M_aa_1 @ F1 + M_ab_12 @ F2
+        rdot2 = M_ab_21 @ F1 + M_aa_2 @ F2
 
         ds1_dt = float(rdot1 @ es)
         ds2_dt = float(rdot2 @ es)

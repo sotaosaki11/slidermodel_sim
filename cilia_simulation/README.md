@@ -1,8 +1,8 @@
 # cilia_simulation
 
 修士論文第4章の **1次元スライダーモデル**（繊毛簡略化モデル）を Python で段階的に再実装する。  
-論文再現の目標は **正味流量 Q** および **最適位相差 Δ_opt** の再現（exp04 まで）。  
-その先の研究目標は、**l* 固定**のもと x–y 平面内で相対配置角 θ を変化させ、θ に応じた流量最大化戦略の相違を検証すること（exp05、exp04 完了後）。
+論文再現の目標は **正味流量 Q** および **最適位相差 Δ_opt** の再現（exp05 まで）。  
+その先の研究目標は、**l* 固定**のもと x–y 平面内で相対配置角 θ を変化させ、θ に応じた流量最大化戦略の相違を検証すること（exp06、exp05 完了後）。
 
 GitHub リポジトリトップの README は [`../README.md`](../README.md) に配置（内容同期）。
 
@@ -13,17 +13,18 @@ GitHub リポジトリトップの README は [`../README.md`](../README.md) に
 | exp01 | `experiments/exp01_single_slider.py` | 完了 | 単一スライダー、Q≈0 検証 |
 | exp02 | `experiments/exp02_two_sliders_nowall.py` | 完了 | 2本スライダー、Oseen 相互作用 |
 | exp03 | `experiments/exp03_sweep_delta_l.py` | 完了 | Δ×l 掃引、Q(Δ,l)、Δ_opt(l) |
-| exp04 | `experiments/exp04_two_sliders_wall.py` | 未実装 | 壁あり Blakelet（論文最終形） |
-| exp05 | `experiments/exp05_sweep_delta_theta.py` | 未実装 | Δ×θ 掃引（l 固定）— **exp04 後に実装** |
+| exp04 | `experiments/exp04_two_sliders_wall.py` | 完了 | 壁あり Blakelet（単点検証） |
+| exp05 | `experiments/exp05_sweep_delta_l_wall.py` | 完了 | 壁あり Blakelet Δ×l 掃引 |
+| exp06 | `experiments/exp06_sweep_delta_theta.py` | 未実装 | Δ×θ 掃引（l 固定）— **exp05 後に実装** |
 
 ### 現モデルの限界
 
-exp03 までの結果を解釈する際は、次の2点を区別する。
+| 段階 | 移動度（力→速度） | 流量 $Q$ |
+|------|-------------------|----------|
+| exp01〜03 | Oseen（壁なし） | 式(2.61)（壁 z=0 遠方近似） |
+| **exp04** | **Blakelet（壁 z=0）** | 式(2.61)(4.65)（移動度と整合） |
 
-- **移動度**: 壁なし **Oseen / Stokeslet** を採用（論文最終形の Blakelet ではない）
-- **流量 Q**: 論文 式(2.61) 系の **壁 z=0 遠方近似** を先行適用（exp04 で物理的整合を図る）
-
-exp03 の出力は **定性的トレンド** および **数値パイプラインの検証** に有効。論文 Fig との **厳密な定量一致** は exp04 完了後に評価する。
+exp03 は Oseen 上の定性的トレンド検証。論文 Fig との **定量比較** は exp05 の **fine 掃引**（`--mode fine`）で評価する。
 
 物理・数学の詳細は [`PHYSICS_REPORT.md`](PHYSICS_REPORT.md) を参照。
 
@@ -87,6 +88,44 @@ IDE ▷ 実行時は `config/default_params.py` の `EXP03_DEFAULT_MODE` を変�
 - `q_delta_l.csv`, `delta_opt_vs_l.csv`, `q_vs_delta_fixed_l.csv`
 - `Q_heatmap_delta_l.png`, `delta_opt_vs_l.png`, `Q_vs_delta_fixed_l.png`
 
+### exp04 — 2本スライダー（壁あり Blakelet、単点）
+
+```bash
+python experiments/exp04_two_sliders_wall.py
+```
+
+パラメータは `config/default_params.py` の `EXP04_DEFAULTS`（exp02 単点と同一の $(l, \Delta)$）。積分は `EXP04_SOLVER_PRESET`（RK45, 10 周期）。
+
+**出力先**: `output/exp04_two_sliders_wall/<YYYYMMDD_HHMMSS>/`
+
+**出力物**: `parameters.json`, `summary.txt`, `trajectory_s1s2.png`, `forces_f1f2.png`, `phase_portrait_s1_vs_s2.png`
+
+**summary の要点**:
+
+- `Q_blakelet` … Blakelet 移動度での周期平均流量
+- `Q_oseen_reference` … 同条件の Oseen（exp02 相当）参考値
+- `beads_above_wall_passed` … 全時刻で $z_i > 0$ か
+
+1ケースの $Q$ のみ必要なときは `core/two_slider.py` の `compute_two_slider_Q_blakelet` も利用可。
+
+### exp05 — Δ×l 掃引（壁あり Blakelet）
+
+```bash
+# 探索（Delta 360 点 + Euler）
+python experiments/exp05_sweep_delta_l_wall.py --mode fast
+
+# 論文比較（Delta 8000 点 + RK45）
+python experiments/exp05_sweep_delta_l_wall.py --mode fine --workers 4
+
+python experiments/exp05_sweep_delta_l_wall.py --workers 1
+```
+
+IDE ▷ 実行時は `config/default_params.py` の `EXP05_DEFAULT_MODE` を変更する。
+
+**出力先**: `output/exp05_sweep_delta_l_wall/<YYYYMMDD_HHMMSS>/`
+
+**出力物**: exp03 と同型（`q_delta_l.csv`, `delta_opt_vs_l.csv`, ヒートマップ等）
+
 ## テスト
 
 ```bash
@@ -98,7 +137,7 @@ python -m unittest discover tests -v
 ```
 cilia_simulation/
 ├── README.md              # 本ファイル
-├── PHYSICS_REPORT.md      # 物理・数学解説（exp01〜exp03）
+├── PHYSICS_REPORT.md      # 物理・数学解説（exp01〜exp05）
 ├── .cursorrules           # コーディング規約
 ├── requirements.txt
 ├── config/
@@ -108,7 +147,7 @@ cilia_simulation/
 │   ├── hydrodynamics.py
 │   ├── solver.py
 │   ├── flow_rate.py
-│   ├── two_slider.py      # 1ケース Q 計算
+│   ├── two_slider.py      # 1ケース Q（Oseen / Blakelet）
 │   ├── sweep.py           # 並列パラメータ掃引
 │   ├── progress.py
 │   ├── stokeslet_field.py
@@ -118,11 +157,14 @@ cilia_simulation/
 │   ├── exp01_single_slider.py
 │   ├── exp02_two_sliders_nowall.py
 │   ├── exp03_sweep_delta_l.py
-│   ├── exp04_two_sliders_wall.py
-│   └── exp05_sweep_delta_theta.py  # プレースホルダ（exp04 後・段階実装）
+│   ├── exp04_two_sliders_wall.py       # Blakelet 単点
+│   ├── exp05_sweep_delta_l_wall.py     # Blakelet Δ×l 掃引
+│   └── exp06_sweep_delta_theta.py      # プレースホルダ（exp05 後）
 ├── tests/
 │   ├── test_single_slider.py
+│   ├── test_blakelet_mobility.py
 │   ├── test_exp03_sweep.py
+│   ├── test_exp05_sweep.py
 │   ├── test_progress.py
 │   └── test_sweep.py
 ├── optionrun/
@@ -138,13 +180,21 @@ cilia_simulation/
   `q_x = (h/(πμ)) F_x`，`F_x = f_total cos(phi)`
 - **成功基準**: 1周期平均 `Q ≈ 0`、定常振動の位相遅れが理論値と一致
 
-## exp02/exp03 — 2体モデル（要点）
+## exp02/exp03 — 2体モデル（要点・壁なし）
 
 - **駆動力**: `f_active,1 = F₀ cos(ωt + Δ)`，`f_active,2 = F₀ cos(ωt)`（スライダー1に +Δ）
 - **配置**: `r1_base = (−l/2, 0, h)`，`r2_base = (+l/2, 0, h)`
 - **移動度**: 自己項 `M_aa = γ₀ I`、交差項 Oseen `M_ab = J/(8πμR)`，`J = I + (R⊗R)/R²`
 - **拘束**: `ṙ_i · e_s⊥ = 0` より Lagrange 乗数 λ₁, λ₂ を決定する
 - **2体流量**: `q_x = [z₁ F_x,1 + z₂ F_x,2] / (πμ)`，`z_i = h − s_i sin(phi)`
+
+## exp04 — 2体モデル（壁あり Blakelet、単点）
+
+- **移動度**: `BlakeletTwoSliderMobility`（`core/hydrodynamics.py`）
+  - 自己項: `M_aa = γ₀ I + M̂(z/a)`（式(2.51)(2.52)）
+  - 交差項: Blakelet `G(r_i, r_j)`（式(2.44)(4.17)）
+- **拘束・駆動力・流量**: exp02 と同型（式(4.4)(4.5)、式(2.61)(4.65)）
+- **実装**: `compute_two_slider_Q_blakelet` / `experiments/exp04_two_sliders_wall.py`
 
 ## アニメーション（オンデマンド）
 
@@ -160,8 +210,9 @@ MP4 生成には [ffmpeg](https://ffmpeg.org/) を要する場合あり。
 
 - 論文第4章: スライダーモデル、位相差・流量
 - 式(2.39)(2.40): Oseen テンソル
+- 式(2.44)(2.51): Blakelet / 壁自己項（exp04）
 - 式(2.61)(2.62)(4.65): 瞬時・平均流量
-- 式(4.3): 駆動力
+- 式(4.3)(4.4)(4.5): 駆動力・2体運動（拘束）
 - 4.3.6 節: 単一スライダーで Q₀=0
 
 ## License

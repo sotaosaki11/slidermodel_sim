@@ -143,8 +143,9 @@ alwaysApply: true
 | 第1 | `exp01_single_slider.py` | 単一スライダー、壁なし、Q≈0 検証 |
 | 第2 | `exp02_two_sliders_nowall.py` | 2本、Stokeslet |
 | 第3 | `exp03_sweep_delta_l.py` | `Delta × l` 掃引、`Q(Delta,l)` 解析 |
-| 第4 | `exp04_two_sliders_wall.py` | 2本、Blakelet（論文最終形） |
-| 第5 | `exp05_sweep_delta_theta.py` | l 固定、Delta×theta（**exp04 後**・現状プレースホルダ） |
+| 第4 | `exp04_two_sliders_wall.py` | 2本、Blakelet 単点（論文最終形の検証） |
+| 第5 | `exp05_sweep_delta_l_wall.py` | Blakelet `Delta × l` 掃引（論文数値解析） |
+| 第6 | `exp06_sweep_delta_theta.py` | l 固定、Delta×theta（**exp05 後**・現状プレースホルダ） |
 
 - 駆動力: `F_0 cos(ωt)`（論文 式(4.3)）。第2段階で位相差 Δ を導入。
 - 移動度: `γ₀ = 1/(6πμa)`（Stokes drag）。
