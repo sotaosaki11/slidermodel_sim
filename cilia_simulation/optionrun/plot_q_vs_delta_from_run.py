@@ -1,8 +1,8 @@
 """
-保存済み exp03 結果から Q(Delta) を複数 l で重ね描きする / Multi-l Q(Delta) overlay CLI.
+保存済み exp03 / exp05 結果から Q(Delta) を複数 l で重ね描きする / Multi-l Q(Delta) overlay CLI.
 
 【目的 / Purpose】
-    数値実験（exp03）を再実行せず、q_delta_l.csv から
+    数値実験を再実行せず、q_delta_l.csv から
     複数の l における Q*(Delta) 曲線を1枚の図に重ねて保存する。
 
 【実行方法 / How to run】
@@ -21,8 +21,6 @@ import logging
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 import numpy as np
 
 # プロジェクトルートを import パスに追加する / Allow imports from cilia_simulation root.
@@ -30,7 +28,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.utils import PlotStyle, dimless_label
+from core.utils import (
+    SWEEP_MULTI_L_OVERLAY_DEFAULTS,
+    plot_q_vs_delta_multi_l,
+    resolve_overlay_l_values,
+)
+
+_L_MATCH_ATOL = 1e-9
 
 # ==========================================
 # パラメータ設定セクション（▷実行・CLI 既定値）
@@ -45,13 +49,8 @@ DEFAULT_OUTPUT_NAME = "Q_vs_delta_multi_l.png"
 RUN_DIR_FOR_PLAY: str | None = None
 RUN_DIR_FOR_PLAY = "output/exp03_sweep_delta_l/20260608_180938"
 
-# ▷ 実行用: 重ねる l* のリスト。None なら下の DEFAULT_L_VALUES を使う。
+# ▷ 実行用: 重ねる l* のリスト。None なら SWEEP_MULTI_L_OVERLAY_DEFAULTS を使う。
 L_VALUES_FOR_PLAY: list[float] | None = None
-
-# 引数なし（▷）のときの既定 l*（0.25 刻みの掃引点から代表的な値を選ぶ）
-DEFAULT_L_VALUES: tuple[float, ...] = (1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0)
-
-_L_MATCH_ATOL = 1e-9
 
 
 def _find_latest_run_directory() -> Path:
@@ -87,7 +86,7 @@ def _resolve_run_directory(run_dir_arg: str | None) -> Path:
     return path
 
 
-def _parse_l_values(l_values_arg: str | None) -> list[float]:
+def _parse_l_values(l_values_arg: str | None) -> list[float] | None:
     """カンマ区切り文字列または既定値から l* リストを返す / Parse l* list."""
     if l_values_arg is not None:
         parts = [part.strip() for part in l_values_arg.split(",") if part.strip()]
@@ -96,7 +95,7 @@ def _parse_l_values(l_values_arg: str | None) -> list[float]:
         return [float(part) for part in parts]
     if L_VALUES_FOR_PLAY is not None:
         return list(L_VALUES_FOR_PLAY)
-    return list(DEFAULT_L_VALUES)
+    return None
 
 
 def _load_q_delta_l_csv(run_dir: Path) -> np.ndarray:
@@ -119,25 +118,6 @@ def _unique_l_values_in_csv(data: np.ndarray) -> np.ndarray:
     return np.unique(data[:, 0])
 
 
-def _resolve_l_values_against_csv(
-    requested: list[float],
-    available: np.ndarray,
-) -> list[float]:
-    """
-    要求された l* を CSV 上の実値に対応付ける。見つからない値はエラー。
-    """
-    resolved: list[float] = []
-    for l_req in requested:
-        matches = available[np.isclose(available, l_req, rtol=0.0, atol=_L_MATCH_ATOL)]
-        if matches.size == 0:
-            available_str = ", ".join(f"{v:g}" for v in available)
-            raise ValueError(
-                f"l*={l_req:g} not found in q_delta_l.csv. Available: {available_str}"
-            )
-        resolved.append(float(matches[0]))
-    return resolved
-
-
 def _extract_q_vs_delta(
     data: np.ndarray,
     *,
@@ -153,93 +133,11 @@ def _extract_q_vs_delta(
     return subset[:, 1], subset[:, 3]
 
 
-def plot_q_vs_delta_multi_l(
-    path: Path | str,
-    *,
-    l_values: list[float],
-    delta_by_l: dict[float, np.ndarray],
-    q_by_l: dict[float, np.ndarray],
-    style: PlotStyle | None = None,
-) -> None:
-    """
-    複数 l* における Q*(Delta) を1枚の図に重ねて保存する。
-
-    各曲線の Q 最大点に、曲線と同色の ★ マーカーで Δ_opt を示す。
-    """
-    plot_style = style if style is not None else PlotStyle()
-    fig, axis = plt.subplots(
-        figsize=(plot_style.figure_width, plot_style.figure_height),
-        dpi=plot_style.dpi,
-    )
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-    opt_marker_size = 90.0
-    opt_marker_edgewidth = 0.9
-
-    for index, l_value in enumerate(l_values):
-        delta_rad = delta_by_l[l_value]
-        q_values = q_by_l[l_value]
-        color = colors[index % len(colors)]
-        delta_deg = np.degrees(delta_rad)
-        axis.plot(
-            delta_deg,
-            q_values,
-            color=color,
-            linewidth=plot_style.line_width,
-            linestyle="-",
-            marker="o",
-            markersize=3.0,
-            label=rf"$l^{{*}}={l_value:g}$",
-        )
-        i_opt = int(np.argmax(q_values))
-        delta_opt_deg = float(delta_deg[i_opt])
-        q_opt = float(q_values[i_opt])
-        axis.scatter(
-            [delta_opt_deg],
-            [q_opt],
-            color=color,
-            marker="*",
-            s=opt_marker_size,
-            edgecolors="white",
-            linewidths=opt_marker_edgewidth,
-            zorder=5,
-        )
-
-    opt_legend_handle = Line2D(
-        [],
-        [],
-        linestyle="None",
-        marker="*",
-        markersize=10,
-        markerfacecolor="0.35",
-        markeredgecolor="white",
-        markeredgewidth=opt_marker_edgewidth,
-        label=r"$\Delta_{\mathrm{opt}}$ (peak)",
-    )
-    legend_handles, legend_labels = axis.get_legend_handles_labels()
-    axis.legend(
-        legend_handles + [opt_legend_handle],
-        legend_labels + [opt_legend_handle.get_label()],
-        fontsize=plot_style.font_size,
-        loc="best",
-    )
-
-    axis.set_xlabel(r"$\Delta$ [deg]", fontsize=plot_style.font_size)
-    axis.set_ylabel(dimless_label("Q"), fontsize=plot_style.font_size)
-    axis.set_title(
-        r"$Q^{*}(\Delta)$ at multiple $l^{*}$",
-        fontsize=plot_style.font_size,
-    )
-    axis.grid(True, alpha=plot_style.grid_alpha)
-    fig.tight_layout()
-    fig.savefig(path)
-    plt.close(fig)
-
-
 def _parse_args() -> argparse.Namespace:
     """コマンドライン引数を解析する / Parse CLI arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Overlay Q*(Delta) curves for multiple l* from a saved exp03 run "
+            "Overlay Q*(Delta) curves for multiple l* from a saved sweep run "
             "(reads q_delta_l.csv; no re-simulation)."
         ),
     )
@@ -248,7 +146,7 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help=(
-            "Path to exp03 output folder. "
+            "Path to sweep output folder. "
             "If omitted, uses RUN_DIR_FOR_PLAY or the latest run under "
             "output/exp03_sweep_delta_l/."
         ),
@@ -259,7 +157,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Comma-separated l* values to overlay "
-            f"(default: {','.join(f'{v:g}' for v in DEFAULT_L_VALUES)})."
+            f"(default: {','.join(f'{v:g}' for v in SWEEP_MULTI_L_OVERLAY_DEFAULTS)})."
         ),
     )
     parser.add_argument(
@@ -290,7 +188,7 @@ def main() -> None:
     data = _load_q_delta_l_csv(run_dir)
     available_l = _unique_l_values_in_csv(data)
     requested_l = _parse_l_values(args.l_values)
-    l_values = _resolve_l_values_against_csv(requested_l, available_l)
+    l_values = resolve_overlay_l_values(available_l, requested_l)
     log.info("Overlay l* values: %s", ", ".join(f"{v:g}" for v in l_values))
 
     delta_by_l: dict[float, np.ndarray] = {}

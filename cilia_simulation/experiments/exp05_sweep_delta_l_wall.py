@@ -45,6 +45,7 @@ from core.utils import (
     make_run_directory,
     plot_delta_opt_vs_l,
     plot_q_vs_delta_fixed_l,
+    plot_q_vs_delta_multi_l_from_q_map,
     plot_q_heatmap_delta_l,
     save_parameters,
     save_summary,
@@ -338,6 +339,13 @@ def run_experiment(
         delta_values,
         q_vs_delta_fixed_l,
         l_fixed=l_used,
+        style=PLOT_STYLE,
+    )
+    plot_q_vs_delta_multi_l_from_q_map(
+        run_dir / "Q_vs_delta_multi_l.png",
+        l_values=l_values,
+        delta_values=delta_values,
+        q_map=q_map,
         style=PLOT_STYLE,
     )
 

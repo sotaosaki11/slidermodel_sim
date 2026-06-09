@@ -235,7 +235,7 @@ def resolve_exp04_solver_config() -> SolverConfig:
 
 
 # exp05 Δ×l 掃引（Blakelet）。グリッド範囲は exp03 と共通、積分は Blakelet 上で実行。
-EXP05_DEFAULT_MODE: Exp05Mode = "fast"
+EXP05_DEFAULT_MODE: Exp05Mode = "fine"
 
 _EXP05_SWEEP_PHYSICAL: dict[str, float] = {
   "a": 0.05,
