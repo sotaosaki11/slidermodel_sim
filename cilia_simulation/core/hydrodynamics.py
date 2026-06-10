@@ -350,8 +350,9 @@ def wall_reflection_mobility(
 
     論文 Eq.(2.51)(2.52): 正味の自己モビリティは
 
-        M_aa = (1/(6 pi mu a)) I + M_hat
+        M_aa = (1/(6 pi mu a)) (I + M_hat)
 
+    （M_hat は 6 pi mu a で無次元化された反射寄与なので gamma_0 が両項に掛かる）。
     ここで h = z/a とし、本関数は M_hat（3x3）を返す。
     z はビーズ中心の壁法線座標（z > 0 を想定）。
 
@@ -401,11 +402,13 @@ def blakelet_mobility_tensor(
         8 pi mu G_ij = delta_ij/rho + rho_i rho_j/rho^3
                        - delta_ij/R - R_i R_j/R^3
                        + 2 z_0^2 (P_ij/R^3 - 3 R_i Rtilde_j/R^5)
-                       - 2 z_0 (P_i3 R_j/R^3 - delta_i3 Rtilde_j/R^5
+                       - 2 z_0 ((P_ij R_3 + P_j3 R_i - delta_i3 Rtilde_j)/R^3
                                  - 3 R_i R_3 Rtilde_j/R^5)
 
     ここで rho = r - r_0, R = r - r_I, r_I = (x_0, y_0, -z_0),
-    P = diag(1,1,-1), Rtilde = P @ R。
+    P = diag(1,1,-1), Rtilde = P @ R, R_3 は R の z 成分。
+    Stokes dipole 項（最後の括弧）は論文 式(4.17) に厳密に一致させてあり、
+    壁面 z=0 上で G = 0（滑りなし）を満たす（tests/test_blakelet_mobility.py で検証）。
 
     Parameters
     ----------
@@ -459,17 +462,19 @@ def blakelet_mobility_tensor(
             stokes = (1.0 if i == j else 0.0) / rho + rho_vec[i] * rho_vec[j] / rho3
             image = (1.0 if i == j else 0.0) / R_norm + R_vec[i] * R_vec[j] / R3
 
-            # P = diag(1,1,-1)。P_ij は対角のみ非ゼロ。
+            # P = diag(1,1,-1)。P_ij は対角成分、P_j3 は (j,3) 成分。
             P_ij = 1.0 if (i == j and i != 2) else (-1.0 if i == j == 2 else 0.0)
-            # P_i3 は (i,3) 成分（列 3 = インデックス 2）× R_j
-            P_i3 = -1.0 if i == 2 else 0.0
+            P_j3 = -1.0 if j == 2 else 0.0
             delta_i3 = 1.0 if i == 2 else 0.0
+            R_z = R_vec[2]  # R の z 成分（論文 式(4.17) の R_3）
 
+            # source doublet（論文 式(4.17) 第3項）
             sd_term = 2.0 * z0 * z0 * (P_ij / R3 - 3.0 * R_vec[i] * R_tilde[j] / R5)
+            # Stokes dipole（論文 式(4.17) 第4項）。壁面 no-slip を満たすために
+            # (P_ij R_z + P_j3 R_i - delta_i3 Rtilde_j)/R^3 の3項すべてが必要。
             dip_term = 2.0 * z0 * (
-                P_i3 * R_vec[j] / R3
-                - delta_i3 * R_tilde[j] / R5
-                - 3.0 * R_vec[i] * R_vec[2] * R_tilde[j] / R5
+                (P_ij * R_z + P_j3 * R_vec[i] - delta_i3 * R_tilde[j]) / R3
+                - 3.0 * R_vec[i] * R_z * R_tilde[j] / R5
             )
 
             G[i, j] = (stokes - image + sd_term - dip_term) / (8.0 * math.pi * mu)
@@ -485,7 +490,7 @@ class BlakeletTwoSliderMobility:
     Notes
     -----
     論文 Eq.(4.4)(4.5) の数値実装（論文最終形）:
-    - 自己モビリティ: M_aa = gamma0 I + M_hat(z/a)  … Eq.(2.51)(2.52)
+    - 自己モビリティ: M_aa = gamma0 (I + M_hat(z/a))  … Eq.(2.51)(2.52)
     - 交差モビリティ: M_ab = G(r_i, r_j)            … Eq.(2.44)(4.17)
     - 拘束: rdot_i · e_s_perp = 0（Eq.(4.5) の 2x2 連立）
 
@@ -511,12 +516,15 @@ class BlakeletTwoSliderMobility:
         """
         位置 r における自己移動度 M_aa(r) を返す。
 
-        M_aa = gamma_0 I + M_hat(z/a),  z = r[2]。
+        M_aa = gamma_0 (I + M_hat(z/a)),  z = r[2]（論文 Eq.(2.52)）。
+        M_hat は 6 pi mu a で無次元化された反射寄与なので、gamma_0 が
+        I と M_hat の両方に掛かる（次元整合）。
         """
         ri = _as_position3(r, "r")
         z = float(ri[2])
-        return self.gamma_0 * np.eye(3, dtype=np.float64) + wall_reflection_mobility(
-            z, mu=self.mu, a=self.a
+        return self.gamma_0 * (
+            np.eye(3, dtype=np.float64)
+            + wall_reflection_mobility(z, mu=self.mu, a=self.a)
         )
 
     def cross_mobility(

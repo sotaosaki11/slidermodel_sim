@@ -89,15 +89,38 @@ class TestBlakeletMobilityTensor(unittest.TestCase):
     def test_self_mobility_includes_wall_correction(self) -> None:
         M_aa = self.blake.self_mobility(self.r1)
         gamma_0 = self.oseen.gamma_0
-        expected_extra = wall_reflection_mobility(
+        m_hat_00 = wall_reflection_mobility(
             float(self.r1[2]), mu=self.mu, a=self.blake.a
         )[0, 0]
-        self.assertAlmostEqual(M_aa[0, 0], gamma_0 + expected_extra)
+        # 論文 Eq.(2.52): M_aa = gamma_0 (I + M_hat)（gamma_0 が両項に掛かる）
+        self.assertAlmostEqual(M_aa[0, 0], gamma_0 * (1.0 + m_hat_00))
 
     def test_source_must_be_above_wall(self) -> None:
         r_below = np.array([0.0, 0.0, -0.1], dtype=np.float64)
         with self.assertRaises(ValueError):
             blakelet_mobility_tensor(self.r1, r_below, mu=self.mu)
+
+    def test_no_slip_on_wall(self) -> None:
+        """壁面 z=0 上で G=0（滑りなし条件, 論文 式(2.44)(4.17)）。
+
+        Blakelet の定義そのものである壁面ゼロ条件を検証する。これが破れると
+        壁ありモデル（exp04/exp05）の交差移動度が物理的に誤りになる。
+        """
+        sources = (
+            np.array([0.0, 0.0, 1.0]),
+            np.array([0.3, -0.2, 0.7]),
+            np.array([0.1, 0.4, 2.0]),
+        )
+        for source in sources:
+            for x in (-1.0, 0.0, 0.5, 2.0):
+                for y in (-0.5, 0.0, 1.3):
+                    obs = np.array([x, y, 0.0])  # 壁面上の観測点
+                    G = blakelet_mobility_tensor(obs, source, mu=self.mu)
+                    self.assertLess(
+                        float(np.max(np.abs(G))),
+                        1e-9,
+                        msg=f"no-slip broken at obs={obs}, source={source}",
+                    )
 
 
 class TestBlakeletComputeVelocities(unittest.TestCase):

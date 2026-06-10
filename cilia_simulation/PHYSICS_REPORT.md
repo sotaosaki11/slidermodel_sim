@@ -452,50 +452,185 @@ $$
 | `Q_heatmap_delta_l.png` | $Q(\Delta, l)$ カラーマップ |
 | `delta_opt_vs_l.png` | $\Delta_{\mathrm{opt}}(l)$ |
 | `Q_vs_delta_fixed_l.png` | 固定 $l$ の $Q(\Delta)$ |
+| `Q_vs_delta_multi_l.png` | 複数 $l^*$ における $Q(\Delta)$ 重ね描き（各曲線の $\Delta_{\mathrm{opt}}$ を ★ 表示） |
 
 ---
 
 ## 6. 第4段階 (exp04): 壁あり Blakelet（単点）
 
-### 6.1 移動度（論文最終形）
+論文第4章 4.2 節の数値解析（式(4.4) による Blakelet 移動度）を再現する段階である。exp02/exp03 の幾何・駆動力・流量定義（§2.3, §4.1, §4.5）はそのまま用い、**移動度のみ** `BlakeletTwoSliderMobility` に差し替える。
 
-exp04 では `BlakeletTwoSliderMobility`（`core/hydrodynamics.py`）を用いる。
+### 6.1 移動度（論文 2.3.3–2.3.4, 4.4）
 
-**自己項**（式(2.51)(2.52)）:
+実装: `core/hydrodynamics.py` — `BlakeletTwoSliderMobility`, `wall_reflection_mobility`, `blakelet_mobility_tensor`。
 
-$$\mathbf{M}_{aa} = \gamma_0 \mathbf{I} + \hat{M}(z/a), \quad \gamma_0 = \frac{1}{6\pi\mu a}$$
+#### 6.1.1 壁の自己移動度 — 式(2.51)(2.52)
 
-**相互項**（式(2.44)(4.17)）:
+論文では Faxén 補正を経た壁反射寄与 $\hat{M}$ を $h := z/a$ で与える:
 
-$$\mathbf{M}_{ab} = \mathbf{G}(\mathbf{r}_i, \mathbf{r}_j)$$
+$$
+\hat{M}_{ij} = -\frac{1}{16}\left(9h^{-1} - 2h^{-3} + h^{-5}\right)(\delta_{ij} - \delta_{i3}\delta_{j3})
+- \frac{1}{8}\left(9h^{-1} - 4h^{-3} + h^{-5}\right)\delta_{i3}\delta_{j3}
+$$
 
-鏡像点 $\mathbf{r}_0^I = (x_0, y_0, -z_0)$ と $P = \mathrm{diag}(1,1,-1)$ を含む Blakelet テンソル。拘束解法は exp02 と同一（式(4.5)）。
+正味の自己移動度:
 
-**近似**: 相互項で Faxén 演算子 $F_x F_y$ は省略（exp02 の Oseen と同レベル）。
+$$
+\mathbf{M}_{aa}(\mathbf{r}) = \gamma_0\,(\mathbf{I} + \hat{M}(z/a)), \qquad
+\gamma_0 = \frac{1}{6\pi\mu a}, \quad z = r_z > 0
+$$
 
-### 6.2 1ケース $Q$ と単点実験
+実装 `wall_reflection_mobility` は $\hat{M}$ のみ返し、`self_mobility` が $\gamma_0(\mathbf{I}+\hat{M})$ を組み立てる（$\hat{M}$ は $6\pi\mu a$ で無次元化されているので $\gamma_0$ が両項に掛かる）。接線成分（$i,j\in\{1,2\}$）と法線成分（$i=j=3$）で係数が異なり、非対角はゼロ。
+
+**位置依存**: スライダーが傾き $\phi$ の直線上を動くため $z_i(t) = h - s_i\sin\phi$ は時刻で変化する。Blakelet 版では **粒子ごとに** $\mathbf{M}_{aa}(\mathbf{r}_1)$, $\mathbf{M}_{aa}(\mathbf{r}_2)$ を別々に評価する（Oseen 版は共通 $\mathbf{M}_{aa}=\gamma_0\mathbf{I}$）。
+
+#### 6.1.2 Blakelet 交差テンソル — 式(2.44)(4.17)
+
+論文の Blakelet（鏡像法 + 高次特異点）は
+
+$$
+\mathbf{G}(\mathbf{r},\mathbf{r}_0)
+= \mathbf{J}(\mathbf{r},\mathbf{r}_0) - \mathbf{J}(\mathbf{r},\mathbf{r}_0^I)
++ 2z_0^2\,\mathbf{J}_{\mathrm{SD}}(\mathbf{r},\mathbf{r}_0^I)\cdot P
+- 2z_0\,\mathbf{J}_{\mathrm{D}}(\mathbf{r},\mathbf{r}_0^I)\cdot P
+$$
+
+ここで $\mathbf{r}_0^I=(x_0,y_0,-z_0)$, $P=\mathrm{diag}(1,1,-1)$。実装では論文 4.3.2 節の成分展開（式(4.17)）を用いる:
+
+$$
+\begin{aligned}
+8\pi\mu\, G_{ij} &= \frac{\delta_{ij}}{\rho} + \frac{\rho_i\rho_j}{\rho^3}
+- \frac{\delta_{ij}}{R} - \frac{R_i R_j}{R^3} \\
+&\quad + 2z_0^2\left(\frac{P_{ij}}{R^3} - \frac{3 R_i \tilde{R}_j}{R^5}\right) \\
+&\quad - 2z_0\left(\frac{P_{ij} R_3 + P_{j3} R_i - \delta_{i3}\tilde{R}_j}{R^3}
+- \frac{3 R_i R_3 \tilde{R}_j}{R^5}\right)
+\end{aligned}
+$$
+
+$\rho=\mathbf{r}-\mathbf{r}_0$, $R=\mathbf{r}-\mathbf{r}_0^I$, $\tilde{\mathbf{R}}=P\mathbf{R}$, $R_3$ は $R$ の $z$ 成分。Stokes dipole 項（最後の括弧）の3項はいずれも壁面 $z=0$ で $G=0$（滑りなし）を満たすために必要であり、論文 式(4.17) に厳密一致させる。相互移動度は
+
+$$
+\mathbf{M}_{ab} = \mathbf{G}(\mathbf{r}_i, \mathbf{r}_j)
+$$
+
+（`cross_mobility` → `blakelet_mobility_tensor`）。
+
+#### 6.1.3 論文との差分（近似・限界）
+
+| 項目 | 論文 式(2.48)(2.50) | 本実装 |
+|------|---------------------|--------|
+| 相互項 | $F_x F_y\,\mathbf{G}$（Faxén 演算子付き） | $\mathbf{G}$ を直接使用（点粒子近似） |
+| 自己項 | $F_x F_y\,\mathbf{J}_w$ → 式(2.51) | 式(2.51) を明示実装（同等） |
+| $G_{33}$ | 理論解析 4.3.2 では $O(r^{-5})$ として省略 | **数値コードでは含む**（Fig 4.3–4.5 再現向け） |
+| 潤滑補正 | 近接時は論文でも未導入 | 未実装（$l$ 掃引範囲でビーズ非接触を想定） |
+
+相互項の Faxén 省略は exp02 Oseen と同レベルの意図的近似であり、`hydrodynamics.py` の docstring で明記する。
+
+### 6.2 拘束付き 2 体運動 — 式(4.4)(4.5)
+
+論文 4.1 節の行列形:
+
+$$
+\begin{pmatrix} \dot{\mathbf{r}}_1 \\ \dot{\mathbf{r}}_2 \end{pmatrix}
+=
+\begin{pmatrix}
+\mathbf{M}_{aa}(\mathbf{r}_1) & \mathbf{M}_{ab}(\mathbf{r}_1,\mathbf{r}_2) \\
+\mathbf{M}_{ba}(\mathbf{r}_2,\mathbf{r}_1) & \mathbf{M}_{aa}(\mathbf{r}_2)
+\end{pmatrix}
+\begin{pmatrix} \mathbf{F}_1 \\ \mathbf{F}_2 \end{pmatrix}
+$$
+
+$\mathbf{F}_i = f_{i,\mathrm{total}}\,\mathbf{e}_s + \lambda_i\,\mathbf{e}_{s\perp}$。拘束 $\dot{\mathbf{r}}_i\cdot\mathbf{e}_{s\perp}=0$ から式(4.5) の 2×2 連立を解き $\lambda_1,\lambda_2$ を決定する。アルゴリズムは §4.3 と同一だが、係数行列の **対角ブロックが位置依存**（$\mathbf{M}_{aa}(\mathbf{r}_1)$, $\mathbf{M}_{aa}(\mathbf{r}_2)$）である点が Blakelet 固有の違い。
+
+### 6.3 1 ケースの計算フロー（exp04）
+
+```mermaid
+flowchart TB
+  init["EXP04_DEFAULTS + BlakeletTwoSliderMobility"]
+  init --> stepper["TwoSliderTimeStepper.run"]
+  stepper --> rhs["各ステップ: r1,r2 更新 → M_aa ri, M_ab → 式4.5で lambda → ds/dt"]
+  rhs --> integrate["RK45 積分 n_periods 周期"]
+  integrate --> flow["FlowCalculator: 定常窓1周期の q_x, Q"]
+  flow --> out["summary.txt + 時系列・相図 PNG"]
+```
+
+**手順**（`compute_two_slider_Q_blakelet` / `exp04_two_sliders_wall.py`）:
+
+1. `BlakeletTwoSliderMobility(mu, a)` を構築
+2. `TwoSliderTimeStepper` で $(s_1,s_2)$ を時間積分（各ステップで Blakelet 移動度を再評価）
+3. `FlowCalculator.compute_two_slider_Q_from_result` で式(4.65) に基づく $Q$ を定常窓で評価
+4. 同条件の Oseen 参考値 `Q_oseen_reference` を `compute_two_slider_Q` で併記（比較用）
+
+### 6.4 単点実験と検証
 
 | 処理 | 実装 |
 |------|------|
 | Blakelet 積分 + $Q$ | `compute_two_slider_Q_blakelet`（`core/two_slider.py`） |
 | 単点パイプライン | `experiments/exp04_two_sliders_wall.py` |
 | パラメータ | `EXP04_DEFAULTS`, `resolve_exp04_solver_config` |
+| 移動度テスト | `tests/test_blakelet_mobility.py`（$\hat{M}$ 構造、$G\neq$ Oseen、有限 $Q$） |
 
-単点 `summary.txt` には `Q_blakelet` と同条件 Oseen 参考値 `Q_oseen_reference` を記録する。
+単点 `summary.txt` には `Q_blakelet`, `Q_oseen_reference`, `beads_above_wall_passed`（全時刻 $z_i>0$）を記録する。
 
 ---
 
 ## 7. 第5段階 (exp05): Blakelet Δ×l 掃引
 
-exp03 と同型のグリッド（$\Delta \in [-\pi,\pi)$, $l \in [1.5, 6]$）を Blakelet 上で掃引する。論文第4章の数値解析（Fig 4.3–4.5）の再現は本段階の **fine** モードで行う。
+論文第4章 4.2 節のパラメータ掃引（Fig 4.3–4.5）を Blakelet 上で再現する。グリッド・出力形式は exp03（§5）と同型で、1 ケースの物理のみ `compute_two_slider_Q_blakelet` に差し替える。
 
-| 項目 | 実装 |
-|------|------|
-| 掃引本体 | `experiments/exp05_sweep_delta_l_wall.py` |
-| 設定 | `resolve_exp05_config("fast"\|"fine")` |
-| 1ケース | `compute_two_slider_Q_blakelet` |
+### 7.1 掃引グリッドと積分プリセット
 
-出力形式は exp03 と同一（CSV、ヒートマップ、$\Delta_{\mathrm{opt}}(l)$）。
+`config/default_params.py` — `resolve_exp05_config(mode)`（グリッド範囲は exp03 と共通）:
+
+| 項目 | fast（探索用） | fine（論文比較用） |
+|------|---------------|-------------------|
+| $\Delta$ 点数 | 360 | 8000 |
+| $l$ 点数 | 19 | 19 |
+| 積分手法 | 前進 Euler | RK45 |
+| 積分周期数 | 8 | 10 |
+| 1周期あたり評価点数 | 40000 | 10000 |
+| 総ケース数 | $19 \times 360 = 6{,}840$ | $19 \times 8000 = 152{,}000$ |
+
+### 7.2 計算パイプライン
+
+```mermaid
+flowchart TB
+  grid["Delta x l grid"]
+  grid --> case["compute_two_slider_Q_blakelet per case"]
+  case --> blake["BlakeletTwoSliderMobility + TwoSliderTimeStepper"]
+  blake --> Qwin["FlowCalculator: Q over last period Eq.4.65"]
+  Qwin --> qmap["q_map i_l i_d"]
+  qmap --> opt["delta_opt = argmax over Delta"]
+  qmap --> plots["CSV + heatmap + delta_opt vs l + multi-l overlay"]
+```
+
+**1 ケース**（`core/two_slider.py`）:
+
+1. `BlakeletTwoSliderMobility` + `TwoSliderTimeStepper` で積分（§6.3 と同一）
+2. 定常窓 1 周期の $Q$ を返す
+
+**全グリッド**（`experiments/exp05_sweep_delta_l_wall.py`）:
+
+- `_build_cases` → `sweep_with_progress`（並列可）→ `q_map`
+- `np.argmax(q_map, axis=1)` で $\Delta_{\mathrm{opt}}(l)$
+- `plot_q_vs_delta_multi_l_from_q_map` で複数 $l^*$ の $Q(\Delta)$ 重ね描き（既定: 1.5, 2.0, …, 6.0）
+
+### 7.3 出力物
+
+`output/exp05_sweep_delta_l_wall/<timestamp>/`:
+
+| ファイル | 内容 |
+|---------|------|
+| `parameters.json` | mode, workers, Blakelet 設定 |
+| `q_delta_l.csv` | $l, \Delta, Q$ |
+| `delta_opt_vs_l.csv` | $l, \Delta_{\mathrm{opt}}, Q_{\max}$ |
+| `q_vs_delta_fixed_l.csv` | 固定 $l$（exp02 単点と同値）の $Q(\Delta)$ |
+| `Q_heatmap_delta_l.png` | $Q(\Delta, l)$ ヒートマップ |
+| `delta_opt_vs_l.png` | $\Delta_{\mathrm{opt}}(l)$ |
+| `Q_vs_delta_fixed_l.png` | 固定 $l$ の $Q(\Delta)$ |
+| `Q_vs_delta_multi_l.png` | 複数 $l^*$ の $Q(\Delta)$ 重ね描き |
+
+掃引の設定・並列一致は `tests/test_exp05_sweep.py` で検証する。
 
 ---
 
@@ -547,10 +682,12 @@ $$
 | 並進移動度 | $\gamma_0 = 1/(6\pi\mu a)$ | `stokes_translation_mobility` |
 | Oseen 核 | $\mathbf{J} = \mathbf{I} + \mathbf{R}\otimes\mathbf{R}/R^2$ | `stokeslet_kernel_tensor` |
 | Oseen テンソル | $\mathbf{M}_{ab} = \mathbf{J}/(8\pi\mu R)$ | `oseen_tensor` |
-| Blakelet テンソル | $\mathbf{G}(\mathbf{r},\mathbf{r}_0)$ 式(2.44) | `blakelet_mobility_tensor` |
-| 壁自己項 | $\hat{M}(z/a)$ 式(2.51) | `wall_reflection_mobility` |
-| 拘束（Oseen） | $\dot{\mathbf{r}}\cdot\mathbf{e}_{s\perp}=0$ | `TwoSliderMobility.compute_velocities` |
-| 拘束（Blakelet） | 同上 | `BlakeletTwoSliderMobility.compute_velocities` |
+| Blakelet テンソル | $\mathbf{G}(\mathbf{r},\mathbf{r}_0)$ 式(2.44)(4.17) | `blakelet_mobility_tensor` |
+| 壁自己項 | $\hat{M}(z/a)$ 式(2.51)(2.52) | `wall_reflection_mobility`, `self_mobility` |
+| Blakelet 2体速度 | 式(4.4) 移動度行列 | `BlakeletTwoSliderMobility.compute_velocities` |
+| 拘束（Oseen） | 式(4.5) $\dot{\mathbf{r}}\cdot\mathbf{e}_{s\perp}=0$ | `TwoSliderMobility.compute_velocities` |
+| 拘束（Blakelet） | 式(4.5)（位置依存 $\mathbf{M}_{aa}$） | `BlakeletTwoSliderMobility.compute_velocities` |
+| 複数 $l$ 重ね描き | $Q(\Delta)$ at several $l^*$ | `plot_q_vs_delta_multi_l_from_q_map` |
 | 1体 ODE | $ds_1/dt = \gamma_0 f_{\mathrm{total}}$ | `TimeStepper._rhs` |
 | 2体 ODE | $d[s_1,s_2]/dt$ | `TwoSliderTimeStepper._rhs` |
 | 瞬時流量（1体） | $q_x = (h/\pi\mu) F_x$ | `FlowCalculator.instantaneous_q_x` |
@@ -615,12 +752,18 @@ $$
 |--------|------|
 | (2.39) | Oseen 移動度テンソル $\mathbf{M}_{ab}$ |
 | (2.40) | Stokeslet 核テンソル $\mathbf{J}$ |
-| (2.44) | Blakelet $\mathbf{G}$ |
-| (2.51) | 壁自己項 $\hat{M}$ |
+| (2.44) | Blakelet $\mathbf{G}$（鏡像 + 高次特異点） |
+| (2.48) | Faxén 演算子 $F_x, F_y$ |
+| (2.50) | 相互移動度 $F_x F_y \mathbf{G}$（本実装は $\mathbf{G}$ のみ） |
+| (2.51) | 壁自己項 $\hat{M}(z/a)$ |
+| (2.52) | 正味自己移動度 $\gamma_0(\mathbf{I}+\hat{M})$ |
 | (2.61) | 瞬時流量 $q_x$（Blakelet 遠方近似） |
 | (2.62) | 複数スライダーへの拡張 |
 | (4.1)(4.2) | 2体の基準位置 |
 | (4.3) | 能動駆動力 $F_0\cos(\omega t)$ |
+| (4.4) | Blakelet 移動度による 2 体速度 |
+| (4.5) | 拘束力 $\lambda_1,\lambda_2$ の連立 |
+| (4.17) | Blakelet 成分展開（`blakelet_mobility_tensor`） |
 | (4.65) | 2体の周期平均流量 $Q$ |
 
 ### 12.2 リポジトリ内ファイル
@@ -637,7 +780,9 @@ $$
 | `experiments/exp04_two_sliders_wall.py` | 第4段階単点 |
 | `experiments/exp05_sweep_delta_l_wall.py` | 第5段階掃引 |
 | `experiments/exp06_sweep_delta_theta.py` | 第6段階（プレースホルダ） |
-| `tests/test_blakelet_mobility.py` | Blakelet 移動度・パイプライン |
+| `core/utils.py` | `plot_q_vs_delta_multi_l_from_q_map` など |
+| `optionrun/plot_q_vs_delta_from_run.py` | 保存済み CSV から multi-$l$ 図を再描画 |
+| `tests/test_blakelet_mobility.py` | $\hat{M}$ 構造、$G\neq$ Oseen、有限 $Q$ |
 | `tests/test_exp05_sweep.py` | exp05 掃引設定・並列一致 |
 
 ### 12.3 実行例

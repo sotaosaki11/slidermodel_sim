@@ -75,7 +75,7 @@ class TestExp05Config(unittest.TestCase):
         sweep_defaults, solver_config = resolve_exp05_config("fast")
         self.assertEqual(int(sweep_defaults["delta_points"]), 360)
         self.assertEqual(solver_config.method.upper(), "EULER")
-        self.assertEqual(solver_config.n_periods, 8)
+        self.assertEqual(solver_config.n_periods, 10)
         self.assertEqual(solver_config.n_eval_per_period, 40000)
 
     def test_fine_preset(self) -> None:

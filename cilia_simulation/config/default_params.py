@@ -132,7 +132,7 @@ EXP03_SWEEP_DEFAULTS: dict[str, float | int] = EXP03_SWEEP_FINE_DEFAULTS
 EXP03_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = {
   "fast": {
     "method": "EULER",
-    "n_periods": 8,
+    "n_periods": 10,
     "n_eval_per_period": 40000,
     "rtol": 1e-8,
     "atol": 1e-10,
@@ -279,7 +279,7 @@ EXP05_SWEEP_DEFAULTS: dict[str, float | int] = EXP05_SWEEP_FINE_DEFAULTS
 EXP05_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = {
   "fast": {
     "method": "EULER",
-    "n_periods": 8,
+    "n_periods": 10,
     "n_eval_per_period": 40000,
     "rtol": 1e-8,
     "atol": 1e-10,
