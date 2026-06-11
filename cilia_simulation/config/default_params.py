@@ -13,7 +13,7 @@
     - resolve_exp03_config: mode から掃引辞書と SolverConfig を返す
     - EXP04_DEFAULTS / EXP04_SOLVER_PRESET: 第4段階単点（Blakelet）
     - EXP05_DEFAULT_MODE / resolve_exp05_config: 第5段階 Δ×l 掃引（fast / fine）
-    - EXP06_DEFAULT_MODE / resolve_exp06_config: 第6段階 Δ×θ 掃引（l 固定、fast / fine）
+    - EXP06_LAYOUT_THETA / resolve_exp06_config: 第6段階 Δ×l 掃引（配置角 θ 固定、fast / fine）
 
 【使い方 / Usage】
     experiments/exp01_single_slider.py などから import し、
@@ -333,11 +333,11 @@ def resolve_exp05_config(
 
 
 # ==========================================
-# 第6段階 exp06: Delta-theta 掃引（l 固定、x-y 配置角）
+# 第6段階 exp06: Delta-l 掃引（exp05 同型、配置角 theta 固定）
 # ==========================================
 
-EXP06_L_STAR: float = 2.0
-EXP06_THETA_VALUES: tuple[float, ...] = (math.pi / 4.0, math.pi / 2.0)
+# x-y 平面内の相対配置角 [rad]。掃引軸は exp05 と同じ Delta × l。
+EXP06_LAYOUT_THETA: float = math.pi / 4.0  # 45°
 
 _EXP06_SWEEP_PHYSICAL: dict[str, float] = {
   "a": 0.05,
@@ -349,17 +349,21 @@ _EXP06_SWEEP_PHYSICAL: dict[str, float] = {
   "h": 1.0,
   "s1_0": 0.0,
   "s2_0": 0.0,
-  "l": EXP06_L_STAR,
+  "layout_theta": EXP06_LAYOUT_THETA,
   "delta_min": -math.pi,
   "delta_max": math.pi,
+  "l_min": 1.5,
+  "l_max": 6.0,
 }
 
 _EXP06_SWEEP_GRID: dict[str, dict[str, int]] = {
   "fast": {
     "delta_points": 360,
+    "l_points": 19,
   },
   "fine": {
     "delta_points": 8000,
+    "l_points": 19,
   },
 }
 
@@ -399,7 +403,7 @@ def resolve_exp06_config(
     mode: Exp06Mode = "fast",
 ) -> tuple[dict[str, float | int], SolverConfig]:
     """
-    exp06 Δ×θ 掃引のパラメータ辞書と SolverConfig を mode から返す。
+    exp06 Δ×l 掃引（layout_theta 固定）のパラメータ辞書と SolverConfig を mode から返す。
 
     Parameters
     ----------

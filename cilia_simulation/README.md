@@ -15,7 +15,7 @@ GitHub リポジトリトップの README は [`../README.md`](../README.md) に
 | exp03 | `experiments/exp03_sweep_delta_l.py` | 完了 | Δ×l 掃引、Q(Δ,l)、Δ_opt(l) |
 | exp04 | `experiments/exp04_two_sliders_wall.py` | 完了 | 壁あり Blakelet（単点検証） |
 | exp05 | `experiments/exp05_sweep_delta_l_wall.py` | 完了 | 壁あり Blakelet Δ×l 掃引 |
-| exp06 | `experiments/exp06_sweep_delta_theta.py` | 完了 | 壁あり Blakelet Δ×θ 掃引（l*=2 固定、θ=45°, 90°） |
+| exp06 | `experiments/exp06_sweep_delta_theta.py` | 完了 | 壁あり Blakelet Δ×l 掃引（配置角 θ 固定、既定 45°） |
 
 ### 現モデルの限界
 
@@ -126,12 +126,12 @@ IDE ▷ 実行時は `config/default_params.py` の `EXP05_DEFAULT_MODE` を変�
 
 **出力物**: exp03 と同型（`q_delta_l.csv`, `delta_opt_vs_l.csv`, ヒートマップ等）
 
-### exp06 — Δ×θ 掃引（壁あり Blakelet、l* 固定）
+### exp06 — Δ×l 掃引（壁あり Blakelet、配置角 θ 固定）
 
-exp05 と同型の Blakelet 掃引を、**中心間距離 l*=2.0 固定**のもと **配置角 θ=45°, 90°** で実行する。
+exp05 と**同一の Δ×l 掃引・同一の出力グラフ**。2 スライダーの x-y 平面内配置角 θ を `EXP06_LAYOUT_THETA` で固定する（既定: **45°**）。θ を変えたいときは `default_params.py` の値を書き換えて再実行する。
 
 ```bash
-# 探索（Delta 360 点 + Euler、θ=45°・90° の 2 本）
+# 探索（Delta 360 点 + Euler）
 python experiments/exp06_sweep_delta_theta.py --mode fast
 
 # 高精度（Delta 8000 点 + RK45）
@@ -140,15 +140,11 @@ python experiments/exp06_sweep_delta_theta.py --mode fine --workers 4
 python experiments/exp06_sweep_delta_theta.py --workers 1
 ```
 
-IDE ▷ 実行時は `config/default_params.py` の `EXP06_DEFAULT_MODE` を変更する。  
-θ の一覧は同ファイルの `EXP06_THETA_VALUES`（既定: 45°, 90°）。
+IDE ▷ 実行時は `config/default_params.py` の `EXP06_DEFAULT_MODE` と `EXP06_LAYOUT_THETA` を変更する。
 
 **出力先**: `output/exp06_sweep_delta_theta/<YYYYMMDD_HHMMSS>/`
 
-**出力物**:
-
-- `q_delta_theta.csv`, `delta_opt_vs_theta.csv`
-- `Q_heatmap_delta_theta.png`, `delta_opt_vs_theta.png`, `Q_vs_delta_multi_theta.png`
+**出力物**: exp05 と同型（`q_delta_l.csv`, `delta_opt_vs_l.csv`, ヒートマップ等）
 
 ## テスト
 

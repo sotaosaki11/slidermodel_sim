@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.default_params import EXP06_L_STAR
+from config.default_params import EXP04_DEFAULTS, EXP06_LAYOUT_THETA
 from core.hydrodynamics import (
     BlakeletTwoSliderMobility,
     _E_Y,
@@ -35,7 +35,7 @@ class TestExp06YConstraint(unittest.TestCase):
         self.mu = 1.0
         self.a = 0.05
         self.phi = math.pi / 4.0
-        self.l = EXP06_L_STAR
+        self.l = float(EXP04_DEFAULTS["l"])
         self.h = 1.0
         self.es = np.array(
             [math.cos(self.phi), 0.0, -math.sin(self.phi)],
