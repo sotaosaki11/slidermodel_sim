@@ -380,6 +380,7 @@ class TwoSliderTimeStepper:
         delta: float,
         s1_0: float = 0.0,
         s2_0: float = 0.0,
+        layout_theta: float = 0.0,
         config: SolverConfig | None = None,
     ) -> None:
         if omega <= 0.0:
@@ -398,8 +399,10 @@ class TwoSliderTimeStepper:
         self.delta = float(delta)
         self.s1_0 = float(s1_0)
         self.s2_0 = float(s2_0)
+        self.layout_theta = float(layout_theta)
         self.config = config if config is not None else SolverConfig()
         self._period = 2.0 * math.pi / self.omega
+        self._use_y_constraint = abs(self.layout_theta) > 0.0
 
         self._e_s = np.array(
             [math.cos(self.phi), 0.0, -math.sin(self.phi)],
@@ -409,9 +412,18 @@ class TwoSliderTimeStepper:
             [math.sin(self.phi), 0.0, math.cos(self.phi)],
             dtype=np.float64,
         )
-        # 論文式(4.1)(4.2)に合わせる: x 基準は ±l/2, z 基準は h。
-        self._r1_base = np.array([-0.5 * self.l, 0.0, self.h], dtype=np.float64)
-        self._r2_base = np.array([0.5 * self.l, 0.0, self.h], dtype=np.float64)
+        cos_theta = math.cos(self.layout_theta)
+        sin_theta = math.sin(self.layout_theta)
+        half_l = 0.5 * self.l
+        # 論文式(4.1)(4.2)（θ=0）; exp06 は x-y 平面内で ±l/2 を回転配置。
+        self._r1_base = np.array(
+            [-half_l * cos_theta, -half_l * sin_theta, self.h],
+            dtype=np.float64,
+        )
+        self._r2_base = np.array(
+            [half_l * cos_theta, half_l * sin_theta, self.h],
+            dtype=np.float64,
+        )
 
     @property
     def period(self) -> float:
@@ -448,6 +460,7 @@ class TwoSliderTimeStepper:
             f_active1=f_active1,
             f_active2=f_active2,
             k=self.k,
+            use_y_constraint=self._use_y_constraint,
         )
         return np.array([ds1_dt, ds2_dt], dtype=np.float64)
 

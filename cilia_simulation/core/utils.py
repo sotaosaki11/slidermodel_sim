@@ -869,3 +869,201 @@ def plot_q_vs_delta_multi_l_from_q_map(
         q_by_l=q_by_l,
         style=style,
     )
+
+
+# exp06: 複数 θ の Q(Delta) 重ね描き
+def plot_q_heatmap_delta_theta(
+    path: Path | str,
+    delta_values: ArrayLike,
+    theta_values: ArrayLike,
+    q_map: ArrayLike,
+    *,
+    l_fixed: float,
+    style: PlotStyle | None = None,
+) -> None:
+    """Q(Delta, theta) のヒートマップを保存する（exp06）。"""
+    plot_style = style if style is not None else PlotStyle()
+    delta_arr = np.asarray(delta_values, dtype=np.float64)
+    theta_arr = np.asarray(theta_values, dtype=np.float64)
+    q_arr = np.asarray(q_map, dtype=np.float64)
+    if q_arr.shape != (theta_arr.size, delta_arr.size):
+        raise ValueError("q_map shape must be (len(theta_values), len(delta_values)).")
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    delta_deg = np.degrees(delta_arr)
+    theta_deg = np.degrees(theta_arr)
+    mesh = axis.pcolormesh(
+        delta_deg,
+        theta_deg,
+        q_arr,
+        shading="auto",
+        cmap="viridis",
+    )
+    fig.colorbar(mesh, ax=axis, label=dimless_label("Q"))
+    axis.set_xlabel(r"$\Delta$ [deg]", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$\theta$ [deg]", fontsize=plot_style.font_size)
+    axis.set_title(
+        rf"$Q^{{*}}(\Delta,\theta)$ at $l^{{*}}={l_fixed:g}$",
+        fontsize=plot_style.font_size,
+    )
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Q heatmap (Delta-theta) saved: %s", path)
+
+
+def plot_delta_opt_vs_theta(
+    path: Path | str,
+    theta_values: ArrayLike,
+    delta_opt_values: ArrayLike,
+    *,
+    l_fixed: float,
+    style: PlotStyle | None = None,
+) -> None:
+    """Delta_opt(theta) の線図を保存する（exp06）。"""
+    plot_style = style if style is not None else PlotStyle()
+    theta_arr = np.asarray(theta_values, dtype=np.float64)
+    dopt_arr = np.asarray(delta_opt_values, dtype=np.float64)
+    if theta_arr.shape != dopt_arr.shape:
+        raise ValueError("theta_values and delta_opt_values must have the same shape.")
+    dopt_deg = np.degrees(dopt_arr)
+    theta_deg = np.degrees(theta_arr)
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    axis.plot(
+        theta_deg,
+        dopt_deg,
+        color=plot_style.color_primary,
+        linewidth=plot_style.line_width,
+        marker="o",
+        label=r"$\Delta_{\mathrm{opt}}(\theta)$",
+    )
+    axis.set_xlabel(r"$\theta$ [deg]", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$\Delta_{\mathrm{opt}}$ [deg]", fontsize=plot_style.font_size)
+    axis.set_title(
+        rf"Optimal phase difference vs layout angle ($l^{{*}}={l_fixed:g}$)",
+        fontsize=plot_style.font_size,
+    )
+    axis.legend(fontsize=plot_style.font_size)
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Delta-opt vs theta plot saved: %s", path)
+
+
+def plot_q_vs_delta_multi_theta(
+    path: Path | str,
+    *,
+    theta_values: list[float],
+    delta_by_theta: dict[float, np.ndarray],
+    q_by_theta: dict[float, np.ndarray],
+    l_fixed: float,
+    style: PlotStyle | None = None,
+) -> None:
+    """複数 θ における Q*(Delta) を1枚の図に重ねて保存する（exp06）。"""
+    plot_style = style if style is not None else PlotStyle()
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    opt_marker_size = 90.0
+    opt_marker_edgewidth = 0.9
+
+    for index, theta_value in enumerate(theta_values):
+        delta_rad = delta_by_theta[theta_value]
+        q_values = q_by_theta[theta_value]
+        color = colors[index % len(colors)]
+        delta_deg = np.degrees(delta_rad)
+        theta_deg = float(np.degrees(theta_value))
+        axis.plot(
+            delta_deg,
+            q_values,
+            color=color,
+            linewidth=plot_style.line_width,
+            linestyle="-",
+            marker="o",
+            markersize=3.0,
+            label=rf"$\theta={theta_deg:g}^\circ$",
+        )
+        i_opt = int(np.argmax(q_values))
+        axis.scatter(
+            [float(delta_deg[i_opt])],
+            [float(q_values[i_opt])],
+            color=color,
+            marker="*",
+            s=opt_marker_size,
+            edgecolors="white",
+            linewidths=opt_marker_edgewidth,
+            zorder=5,
+        )
+
+    opt_legend_handle = Line2D(
+        [],
+        [],
+        linestyle="None",
+        marker="*",
+        markersize=10,
+        markerfacecolor="0.35",
+        markeredgecolor="white",
+        markeredgewidth=opt_marker_edgewidth,
+        label=r"$\Delta_{\mathrm{opt}}$ (peak)",
+    )
+    legend_handles, legend_labels = axis.get_legend_handles_labels()
+    axis.legend(
+        legend_handles + [opt_legend_handle],
+        legend_labels + [opt_legend_handle.get_label()],
+        fontsize=plot_style.font_size,
+        loc="best",
+    )
+    axis.set_xlabel(r"$\Delta$ [deg]", fontsize=plot_style.font_size)
+    axis.set_ylabel(dimless_label("Q"), fontsize=plot_style.font_size)
+    axis.set_title(
+        rf"$Q^{{*}}(\Delta)$ at multiple $\theta$ ($l^{{*}}={l_fixed:g}$)",
+        fontsize=plot_style.font_size,
+    )
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Multi-theta Q-vs-Delta plot saved: %s", path)
+
+
+def plot_q_vs_delta_multi_theta_from_q_map(
+    path: Path | str,
+    *,
+    theta_values: ArrayLike,
+    delta_values: ArrayLike,
+    q_map: ArrayLike,
+    l_fixed: float,
+    style: PlotStyle | None = None,
+) -> None:
+    """掃引 q_map から複数 θ の Q*(Delta) 重ね描きを保存する（exp06）。"""
+    theta_arr = np.asarray(theta_values, dtype=np.float64)
+    delta_arr = np.asarray(delta_values, dtype=np.float64)
+    q_arr = np.asarray(q_map, dtype=np.float64)
+    if q_arr.shape != (theta_arr.size, delta_arr.size):
+        raise ValueError("q_map shape must be (len(theta_values), len(delta_values)).")
+
+    theta_selected = [float(t) for t in theta_arr]
+    delta_by_theta: dict[float, np.ndarray] = {}
+    q_by_theta: dict[float, np.ndarray] = {}
+    for i_theta, theta_value in enumerate(theta_selected):
+        delta_by_theta[theta_value] = delta_arr
+        q_by_theta[theta_value] = q_arr[i_theta, :]
+
+    plot_q_vs_delta_multi_theta(
+        path,
+        theta_values=theta_selected,
+        delta_by_theta=delta_by_theta,
+        q_by_theta=q_by_theta,
+        l_fixed=l_fixed,
+        style=style,
+    )

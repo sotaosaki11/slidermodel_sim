@@ -28,6 +28,7 @@ def compute_two_slider_Q(
     s1_0: float,
     s2_0: float,
     solver_config: SolverConfig,
+    layout_theta: float = 0.0,
 ) -> float:
     """
     2本スライダー1ケースを積分し、定常窓1周期の平均流量 Q を返す。
@@ -45,6 +46,7 @@ def compute_two_slider_Q(
         delta=delta,
         s1_0=s1_0,
         s2_0=s2_0,
+        layout_theta=layout_theta,
         config=solver_config,
     )
     result = stepper.run()
@@ -70,6 +72,7 @@ def compute_two_slider_Q_blakelet(
     s1_0: float,
     s2_0: float,
     solver_config: SolverConfig,
+    layout_theta: float = 0.0,
 ) -> float:
     """
     2本スライダー1ケースを Blakelet 移動度で積分し、定常窓1周期の平均流量 Q を返す。
@@ -84,6 +87,8 @@ def compute_two_slider_Q_blakelet(
         物理・幾何パラメータ（無次元）。
     solver_config : SolverConfig
         積分器設定（周期数、刻み、RK45/Euler など）。
+    layout_theta : float
+        x-y 平面内の相対配置角（exp06）。0 で論文配置。
 
     Returns
     -------
@@ -103,6 +108,7 @@ def compute_two_slider_Q_blakelet(
         delta=delta,
         s1_0=s1_0,
         s2_0=s2_0,
+        layout_theta=layout_theta,
         config=solver_config,
     )
     result = stepper.run()

@@ -13,7 +13,7 @@
     - resolve_exp03_config: mode から掃引辞書と SolverConfig を返す
     - EXP04_DEFAULTS / EXP04_SOLVER_PRESET: 第4段階単点（Blakelet）
     - EXP05_DEFAULT_MODE / resolve_exp05_config: 第5段階 Δ×l 掃引（fast / fine）
-    - 第6段階 exp06: 実験スクリプトのみプレースホルダ（exp05 後に段階実装）
+    - EXP06_DEFAULT_MODE / resolve_exp06_config: 第6段階 Δ×θ 掃引（l 固定、fast / fine）
 
 【使い方 / Usage】
     experiments/exp01_single_slider.py などから import し、
@@ -36,6 +36,7 @@ from core.solver import SolverConfig
 
 Exp03Mode = Literal["fast", "fine"]
 Exp05Mode = Literal["fast", "fine"]
+Exp06Mode = Literal["fast", "fine"]
 
 # ==========================================
 # 第1段階 exp01: 単一スライダー（壁なし）
@@ -332,8 +333,100 @@ def resolve_exp05_config(
 
 
 # ==========================================
-# 第6段階 exp06: Delta-theta 掃引（l 固定、x-y 配置角）— プレースホルダ
-# exp05 完了後に段階実装（core 幾何・config・掃引スクリプトは未追加）
+# 第6段階 exp06: Delta-theta 掃引（l 固定、x-y 配置角）
 # ==========================================
 
-# EXP06_DEFAULTS / EXP06_SWEEP_* / resolve_exp06_config: 後日追加
+EXP06_L_STAR: float = 2.0
+EXP06_THETA_VALUES: tuple[float, ...] = (math.pi / 4.0, math.pi / 2.0)
+
+_EXP06_SWEEP_PHYSICAL: dict[str, float] = {
+  "a": 0.05,
+  "mu": 1.0,
+  "k": 1.0,
+  "F_0": 1.0,
+  "omega": 2.0 * math.pi,
+  "phi": math.pi / 4.0,
+  "h": 1.0,
+  "s1_0": 0.0,
+  "s2_0": 0.0,
+  "l": EXP06_L_STAR,
+  "delta_min": -math.pi,
+  "delta_max": math.pi,
+}
+
+_EXP06_SWEEP_GRID: dict[str, dict[str, int]] = {
+  "fast": {
+    "delta_points": 360,
+  },
+  "fine": {
+    "delta_points": 8000,
+  },
+}
+
+EXP06_SWEEP_FAST_DEFAULTS: dict[str, float | int] = {
+  **_EXP06_SWEEP_PHYSICAL,
+  **_EXP06_SWEEP_GRID["fast"],
+}
+
+EXP06_SWEEP_FINE_DEFAULTS: dict[str, float | int] = {
+  **_EXP06_SWEEP_PHYSICAL,
+  **_EXP06_SWEEP_GRID["fine"],
+}
+
+EXP06_SWEEP_DEFAULTS: dict[str, float | int] = EXP06_SWEEP_FINE_DEFAULTS
+
+EXP06_DEFAULT_MODE: Exp06Mode = "fast"
+
+EXP06_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = {
+  "fast": {
+    "method": "EULER",
+    "n_periods": 10,
+    "n_eval_per_period": 40000,
+    "rtol": 1e-8,
+    "atol": 1e-10,
+  },
+  "fine": {
+    "method": "RK45",
+    "n_periods": 10,
+    "n_eval_per_period": 10000,
+    "rtol": 1e-8,
+    "atol": 1e-10,
+  },
+}
+
+
+def resolve_exp06_config(
+    mode: Exp06Mode = "fast",
+) -> tuple[dict[str, float | int], SolverConfig]:
+    """
+    exp06 Δ×θ 掃引のパラメータ辞書と SolverConfig を mode から返す。
+
+    Parameters
+    ----------
+    mode : {"fast", "fine"}
+        fast: 粗い Delta グリッド + 前進 Euler（探索用）。
+        fine: 密な Delta グリッド + RK45（高精度用）。
+
+    Returns
+    -------
+    sweep_defaults : dict
+        EXP06_SWEEP_FAST_DEFAULTS または EXP06_SWEEP_FINE_DEFAULTS。
+    solver_config : SolverConfig
+        EXP06_SOLVER_PRESETS に対応する積分設定。
+    """
+    if mode == "fast":
+        sweep_defaults = EXP06_SWEEP_FAST_DEFAULTS
+    elif mode == "fine":
+        sweep_defaults = EXP06_SWEEP_FINE_DEFAULTS
+    else:
+        raise ValueError(f"Unknown exp06 mode: {mode!r}. Use 'fast' or 'fine'.")
+
+    preset = EXP06_SOLVER_PRESETS[mode]
+    solver_config = SolverConfig(
+        method=str(preset["method"]),
+        rtol=float(preset["rtol"]),
+        atol=float(preset["atol"]),
+        n_periods=int(preset["n_periods"]),
+        n_eval_per_period=int(preset["n_eval_per_period"]),
+    )
+    return sweep_defaults, solver_config

@@ -261,6 +261,7 @@ class TwoSliderMobility:
         f_active1: float,
         f_active2: float,
         k: float,
+        use_y_constraint: bool = False,
     ) -> tuple[float, float]:
         """
         拘束付き2スライダー速度を返す。
@@ -277,6 +278,8 @@ class TwoSliderMobility:
             各スライダーの能動力（スカラー）。
         k : float
             ばね定数。
+        use_y_constraint : bool
+            True のとき y 方向拘束（e_y）を追加し 4×4 系を解く（exp06）。
 
         Returns
         -------
@@ -300,29 +303,17 @@ class TwoSliderMobility:
         f_vec1 = f_total1 * es
         f_vec2 = f_total2 * es
 
-        A = np.array(
-            [
-                [esp @ (M_aa @ esp), esp @ (M_ab_12 @ esp)],
-                [esp @ (M_ab_21 @ esp), esp @ (M_aa @ esp)],
-            ],
-            dtype=np.float64,
+        ds1_dt, ds2_dt, _, _ = _solve_two_slider_constrained_velocities(
+            M_aa_1=M_aa,
+            M_aa_2=M_aa,
+            M_ab_12=M_ab_12,
+            M_ab_21=M_ab_21,
+            f_vec1=f_vec1,
+            f_vec2=f_vec2,
+            es=es,
+            esp=esp,
+            use_y_constraint=use_y_constraint,
         )
-        b = np.array(
-            [
-                -(esp @ (M_aa @ f_vec1 + M_ab_12 @ f_vec2)),
-                -(esp @ (M_ab_21 @ f_vec1 + M_aa @ f_vec2)),
-            ],
-            dtype=np.float64,
-        )
-        lambda1, lambda2 = np.linalg.solve(A, b)
-
-        F1 = f_vec1 + lambda1 * esp
-        F2 = f_vec2 + lambda2 * esp
-        rdot1 = M_aa @ F1 + M_ab_12 @ F2
-        rdot2 = M_ab_21 @ F1 + M_aa @ F2
-
-        ds1_dt = float(rdot1 @ es)
-        ds2_dt = float(rdot2 @ es)
         return ds1_dt, ds2_dt
 
 
@@ -337,6 +328,110 @@ def _as_position3(r: ArrayLike, name: str) -> NDArray[np.float64]:
     if arr.shape != (3,):
         raise ValueError(f"{name} must be a 3D vector with shape (3,).")
     return arr
+
+
+_E_Y = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+
+
+def _mobility_constraint_coeff(
+    n: NDArray[np.float64],
+    M: NDArray[np.float64],
+    v: NDArray[np.float64],
+) -> float:
+    """拘束法線 n に対する n·(M·v) の係数。"""
+    return float(n @ M @ v)
+
+
+def _solve_two_slider_constrained_velocities(
+    *,
+    M_aa_1: NDArray[np.float64],
+    M_aa_2: NDArray[np.float64],
+    M_ab_12: NDArray[np.float64],
+    M_ab_21: NDArray[np.float64],
+    f_vec1: NDArray[np.float64],
+    f_vec2: NDArray[np.float64],
+    es: NDArray[np.float64],
+    esp: NDArray[np.float64],
+    use_y_constraint: bool,
+) -> tuple[float, float, NDArray[np.float64], NDArray[np.float64]]:
+    """
+    拘束付き 2 スライダーのレール方向速度と 3D 速度ベクトルを返す。
+
+    use_y_constraint=False: e_s⊥ 方向のみ（2×2、exp01–05）。
+    use_y_constraint=True : e_s⊥ と e_y の両方（4×4、exp06 layout_theta≠0）。
+
+    Returns
+    -------
+    ds1_dt, ds2_dt, rdot1, rdot2
+    """
+    rdot_free_1 = M_aa_1 @ f_vec1 + M_ab_12 @ f_vec2
+    rdot_free_2 = M_ab_21 @ f_vec1 + M_aa_2 @ f_vec2
+
+    if not use_y_constraint:
+        A = np.array(
+            [
+                [_mobility_constraint_coeff(esp, M_aa_1, esp), _mobility_constraint_coeff(esp, M_ab_12, esp)],
+                [_mobility_constraint_coeff(esp, M_ab_21, esp), _mobility_constraint_coeff(esp, M_aa_2, esp)],
+            ],
+            dtype=np.float64,
+        )
+        b = np.array(
+            [
+                -float(esp @ rdot_free_1),
+                -float(esp @ rdot_free_2),
+            ],
+            dtype=np.float64,
+        )
+        lambda_perp_1, lambda_perp_2 = np.linalg.solve(A, b)
+        F1 = f_vec1 + lambda_perp_1 * esp
+        F2 = f_vec2 + lambda_perp_2 * esp
+    else:
+        ey = _E_Y
+        A = np.array(
+            [
+                [
+                    _mobility_constraint_coeff(esp, M_aa_1, esp),
+                    _mobility_constraint_coeff(esp, M_aa_1, ey),
+                    _mobility_constraint_coeff(esp, M_ab_12, esp),
+                    _mobility_constraint_coeff(esp, M_ab_12, ey),
+                ],
+                [
+                    _mobility_constraint_coeff(ey, M_aa_1, esp),
+                    _mobility_constraint_coeff(ey, M_aa_1, ey),
+                    _mobility_constraint_coeff(ey, M_ab_12, esp),
+                    _mobility_constraint_coeff(ey, M_ab_12, ey),
+                ],
+                [
+                    _mobility_constraint_coeff(esp, M_ab_21, esp),
+                    _mobility_constraint_coeff(esp, M_ab_21, ey),
+                    _mobility_constraint_coeff(esp, M_aa_2, esp),
+                    _mobility_constraint_coeff(esp, M_aa_2, ey),
+                ],
+                [
+                    _mobility_constraint_coeff(ey, M_ab_21, esp),
+                    _mobility_constraint_coeff(ey, M_ab_21, ey),
+                    _mobility_constraint_coeff(ey, M_aa_2, esp),
+                    _mobility_constraint_coeff(ey, M_aa_2, ey),
+                ],
+            ],
+            dtype=np.float64,
+        )
+        b = np.array(
+            [
+                -float(esp @ rdot_free_1),
+                -float(ey @ rdot_free_1),
+                -float(esp @ rdot_free_2),
+                -float(ey @ rdot_free_2),
+            ],
+            dtype=np.float64,
+        )
+        lambda_perp_1, lambda_y_1, lambda_perp_2, lambda_y_2 = np.linalg.solve(A, b)
+        F1 = f_vec1 + lambda_perp_1 * esp + lambda_y_1 * ey
+        F2 = f_vec2 + lambda_perp_2 * esp + lambda_y_2 * ey
+
+    rdot1 = M_aa_1 @ F1 + M_ab_12 @ F2
+    rdot2 = M_ab_21 @ F1 + M_aa_2 @ F2
+    return float(rdot1 @ es), float(rdot2 @ es), rdot1, rdot2
 
 
 def wall_reflection_mobility(
@@ -549,11 +644,13 @@ class BlakeletTwoSliderMobility:
         f_active1: float,
         f_active2: float,
         k: float,
+        use_y_constraint: bool = False,
     ) -> tuple[float, float]:
         """
         拘束付き2スライダー速度を返す（Blakelet 版）。
 
         TwoSliderMobility.compute_velocities と同一の拘束解法（Eq.(4.5)）。
+        use_y_constraint=True のとき e_y 拘束を追加（exp06）。
         """
         if k < 0.0:
             raise ValueError("k must be non-negative.")
@@ -576,27 +673,15 @@ class BlakeletTwoSliderMobility:
         f_vec1 = f_total1 * es
         f_vec2 = f_total2 * es
 
-        A = np.array(
-            [
-                [esp @ (M_aa_1 @ esp), esp @ (M_ab_12 @ esp)],
-                [esp @ (M_ab_21 @ esp), esp @ (M_aa_2 @ esp)],
-            ],
-            dtype=np.float64,
+        ds1_dt, ds2_dt, _, _ = _solve_two_slider_constrained_velocities(
+            M_aa_1=M_aa_1,
+            M_aa_2=M_aa_2,
+            M_ab_12=M_ab_12,
+            M_ab_21=M_ab_21,
+            f_vec1=f_vec1,
+            f_vec2=f_vec2,
+            es=es,
+            esp=esp,
+            use_y_constraint=use_y_constraint,
         )
-        b = np.array(
-            [
-                -(esp @ (M_aa_1 @ f_vec1 + M_ab_12 @ f_vec2)),
-                -(esp @ (M_ab_21 @ f_vec1 + M_aa_2 @ f_vec2)),
-            ],
-            dtype=np.float64,
-        )
-        lambda1, lambda2 = np.linalg.solve(A, b)
-
-        F1 = f_vec1 + lambda1 * esp
-        F2 = f_vec2 + lambda2 * esp
-        rdot1 = M_aa_1 @ F1 + M_ab_12 @ F2
-        rdot2 = M_ab_21 @ F1 + M_aa_2 @ F2
-
-        ds1_dt = float(rdot1 @ es)
-        ds2_dt = float(rdot2 @ es)
         return ds1_dt, ds2_dt
