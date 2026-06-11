@@ -11,7 +11,60 @@ from __future__ import annotations
 
 from core.flow_rate import FlowCalculator
 from core.hydrodynamics import BlakeletTwoSliderMobility, TwoSliderMobility
-from core.solver import SolverConfig, TwoSliderTimeStepper
+from core.solver import SolverConfig, TwoSliderResult, TwoSliderTimeStepper
+
+
+def integrate_two_slider_case(
+    *,
+    mu: float,
+    a: float,
+    k: float,
+    F_0: float,
+    omega: float,
+    phi: float,
+    h: float,
+    l: float,
+    delta: float,
+    s1_0: float,
+    s2_0: float,
+    solver_config: SolverConfig,
+    use_blakelet: bool = False,
+    layout_theta: float = 0.0,
+) -> TwoSliderResult:
+    """
+    2本スライダー1ケースを積分し、軌道時系列 TwoSliderResult を返す。
+
+    Parameters
+    ----------
+    use_blakelet : bool
+        True なら BlakeletTwoSliderMobility（exp05）、False なら Oseen（exp03）。
+    layout_theta : float
+        x-y 平面内の相対配置角（exp06）。0 で論文配置。
+
+    Returns
+    -------
+    TwoSliderResult
+        全積分区間の s1, s2 時系列と定常窓インデックス。
+    """
+    if use_blakelet:
+        mobility = BlakeletTwoSliderMobility(mu=mu, a=a)
+    else:
+        mobility = TwoSliderMobility(mu=mu, a=a)
+    stepper = TwoSliderTimeStepper(
+        mobility=mobility,
+        omega=omega,
+        k=k,
+        F_0=F_0,
+        phi=phi,
+        l=l,
+        h=h,
+        delta=delta,
+        s1_0=s1_0,
+        s2_0=s2_0,
+        layout_theta=layout_theta,
+        config=solver_config,
+    )
+    return stepper.run()
 
 
 def compute_two_slider_Q(

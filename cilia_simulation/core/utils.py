@@ -33,7 +33,15 @@ from matplotlib.lines import Line2D
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from core.solver import SolverConfig
+
 logger = logging.getLogger(__name__)
+
+SWEEP_GRID_MATCH_ATOL = 1e-9
+
+_EXP03_NAME = "exp03_sweep_delta_l"
+_EXP05_NAME = "exp05_sweep_delta_l_wall"
+_SUPPORTED_SWEEP_EXPERIMENTS = frozenset({_EXP03_NAME, _EXP05_NAME})
 
 # ==========================================
 # 1. プロット設定
@@ -139,6 +147,146 @@ def save_parameters(path: Path | str, parameters: dict[str, Any] | Any) -> None:
     with target.open("w", encoding="utf-8") as file:
         json.dump(payload, file, indent=2, ensure_ascii=False)
     logger.info("Parameters saved: %s", target)
+
+
+@dataclass(frozen=True)
+class SweepRunContext:
+    """
+    exp03 / exp05 sweep run の再現用コンテキスト / Context loaded from a sweep run folder.
+
+    Attributes
+    ----------
+    run_dir : Path
+        読み込み元 run フォルダ。
+    experiment : str
+        parameters.json の experiment 名。
+    use_blakelet : bool
+        True なら Blakelet（exp05）、False なら Oseen（exp03）。
+    defaults : dict
+        物理パラメータ（mu, a, k, F_0, omega, phi, h, s1_0, s2_0 など）。
+    solver_config : SolverConfig
+        積分器設定。
+    """
+
+
+    run_dir: Path
+    experiment: str
+    use_blakelet: bool
+    defaults: dict[str, float | int]
+    solver_config: SolverConfig
+
+
+def solver_config_from_dict(data: dict[str, Any]) -> SolverConfig:
+    """parameters.json の solver フィールドから SolverConfig を復元する。"""
+    return SolverConfig(
+        method=str(data["method"]),
+        rtol=float(data["rtol"]),
+        atol=float(data["atol"]),
+        n_periods=int(data["n_periods"]),
+        n_eval_per_period=int(data["n_eval_per_period"]),
+        t_start=float(data.get("t_start", 0.0)),
+    )
+
+
+def load_sweep_run_parameters(run_dir: Path | str) -> SweepRunContext:
+    """
+    exp03 / exp05 の parameters.json を読み、再積分用コンテキストを返す。
+
+    Parameters
+    ----------
+    run_dir : Path or str
+        output/exp03_sweep_delta_l/<timestamp>/ など。
+
+    Returns
+    -------
+    SweepRunContext
+
+    Raises
+    ------
+    FileNotFoundError
+        parameters.json が無い場合。
+    ValueError
+        未対応の experiment 名の場合。
+    """
+    directory = Path(run_dir)
+    params_path = directory / "parameters.json"
+    if not params_path.is_file():
+        raise FileNotFoundError(f"parameters.json not found: {params_path}")
+
+    with params_path.open(encoding="utf-8") as file:
+        payload = json.load(file)
+
+    experiment = str(payload["experiment"])
+    if experiment not in _SUPPORTED_SWEEP_EXPERIMENTS:
+        raise ValueError(
+            f"Unsupported experiment {experiment!r}. "
+            f"Expected one of: {sorted(_SUPPORTED_SWEEP_EXPERIMENTS)}."
+        )
+
+    defaults_raw = payload["defaults"]
+    defaults: dict[str, float | int] = dict(defaults_raw)
+    for key in ("delta_points", "l_points"):
+        if key in defaults:
+            defaults[key] = int(defaults[key])
+
+    return SweepRunContext(
+        run_dir=directory,
+        experiment=experiment,
+        use_blakelet=(experiment == _EXP05_NAME),
+        defaults=defaults,
+        solver_config=solver_config_from_dict(payload["solver"]),
+    )
+
+
+def load_q_delta_l_csv(run_dir: Path | str) -> NDArray[np.float64]:
+    """
+    q_delta_l.csv を読み込む。
+
+    Returns
+    -------
+    ndarray
+        shape (N, 4): l, delta_rad, delta_deg, Q
+    """
+    csv_path = Path(run_dir) / "q_delta_l.csv"
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"Missing q_delta_l.csv in run directory: {run_dir}")
+    data = np.loadtxt(csv_path, delimiter=",", skiprows=1, dtype=np.float64)
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    return data
+
+
+def lookup_q_delta_l_case(
+    data: NDArray[np.float64],
+    *,
+    l_value: float,
+    delta_rad: float,
+    atol: float = SWEEP_GRID_MATCH_ATOL,
+) -> tuple[float, float, float]:
+    """
+    q_delta_l.csv から (l*, Delta) に一致する行を返す。
+
+    Returns
+    -------
+    l_matched, delta_matched, Q
+        グリッド上の一致値と保存済み Q。
+
+    Raises
+    ------
+    ValueError
+        グリッド上に一致行が無い場合。
+    """
+    l_mask = np.isclose(data[:, 0], l_value, rtol=0.0, atol=atol)
+    if not np.any(l_mask):
+        raise ValueError(f"No rows for l*={l_value:g} in q_delta_l.csv.")
+    subset = data[l_mask]
+    delta_mask = np.isclose(subset[:, 1], delta_rad, rtol=0.0, atol=atol)
+    if not np.any(delta_mask):
+        raise ValueError(
+            f"No rows for l*={l_value:g}, Delta={delta_rad:g} rad in q_delta_l.csv."
+        )
+    row = subset[delta_mask][0]
+    return float(row[0]), float(row[1]), float(row[3])
 
 
 def save_summary(path: Path | str, lines: list[str]) -> None:
@@ -534,6 +682,90 @@ def plot_phase_portrait_s1_s2(
     fig.savefig(path)
     plt.close(fig)
     logger.info("Phase-portrait plot saved: %s", path)
+
+
+def plot_phase_portrait_convergence_s1_s2(
+    path: Path | str,
+    s1: ArrayLike,
+    s2: ArrayLike,
+    steady_start_index: int,
+    *,
+    l_value: float,
+    delta_deg: float,
+    n_periods: int,
+    Q: float,
+    style: PlotStyle | None = None,
+    transient_linewidth: float = 0.8,
+    steady_linewidth: float = 1.5,
+) -> None:
+    """
+    過渡収束確認用の相図 s2 vs s1 を保存する。
+
+    全軌道を細い青、Q 評価窓（最終1周期）を赤で重ね描きする。
+
+    Parameters
+    ----------
+    path : Path or str
+        保存先 PNG。
+    s1, s2 : array_like
+        全積分区間の各スライダー座標。
+    steady_start_index : int
+        定常窓（Q 計算窓）の開始インデックス。
+    l_value : float
+        スライダー間距離 l*（タイトル用）。
+    delta_deg : float
+        位相差 Delta [deg]（タイトル用）。
+    n_periods : int
+        積分周期数（タイトル用）。
+    Q : float
+        定常窓の周期平均流量 Q*（タイトル用）。
+    style : PlotStyle, optional
+        図の体裁。
+    transient_linewidth, steady_linewidth : float
+        過渡軌道・定常窓の線幅。
+    """
+    plot_style = style if style is not None else PlotStyle()
+    s1_arr = np.asarray(s1, dtype=np.float64)
+    s2_arr = np.asarray(s2, dtype=np.float64)
+    idx = int(steady_start_index)
+    if idx < 0 or idx >= s1_arr.size:
+        raise ValueError("steady_start_index out of range for trajectory arrays.")
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    axis.plot(
+        s1_arr,
+        s2_arr,
+        color="C0",
+        linewidth=transient_linewidth,
+        label="transient + approach",
+    )
+    axis.plot(
+        s1_arr[idx:],
+        s2_arr[idx:],
+        color="C3",
+        linewidth=steady_linewidth,
+        label="Q window (last period)",
+    )
+    axis.set_xlabel(dimless_label("s_1"), fontsize=plot_style.font_size)
+    axis.set_ylabel(dimless_label("s_2"), fontsize=plot_style.font_size)
+    axis.set_title(
+        (
+            r"Phase portrait $s_2^{{*}}$ vs $s_1^{{*}}$: "
+            rf"$l^{{*}}={l_value:g}$, $\Delta={delta_deg:.2f}$°, "
+            rf"$n_{{\mathrm{{periods}}}}={n_periods}$, $Q^{{*}}={Q:.4e}$"
+        ),
+        fontsize=plot_style.font_size,
+    )
+    axis.set_aspect("equal", adjustable="box")
+    axis.legend(fontsize=plot_style.font_size)
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Convergence phase-portrait plot saved: %s", path)
 
 
 def plot_q_heatmap_delta_l(

@@ -190,7 +190,9 @@ cilia_simulation/
 │   ├── test_progress.py
 │   └── test_sweep.py
 ├── optionrun/
-│   └── animate_from_run.py
+│   ├── animate_from_run.py
+│   ├── plot_q_vs_delta_from_run.py
+│   └── plot_phase_portrait_from_sweep_run.py
 └── output/                # 実行結果（Git 管理外）
 ```
 
@@ -218,7 +220,9 @@ cilia_simulation/
 - **拘束・駆動力・流量**: exp02 と同型（式(4.4)(4.5)、式(2.61)(4.65)）
 - **実装**: `compute_two_slider_Q_blakelet` / `experiments/exp04_two_sliders_wall.py`
 
-## アニメーション（オンデマンド）
+## オンデマンド可視化（optionrun）
+
+### アニメーション（exp01）
 
 ```bash
 python optionrun/animate_from_run.py
@@ -227,6 +231,25 @@ python optionrun/animate_from_run.py --run-dir output/exp01_single_slider/<YYYYM
 
 **オプション**: `--gif`, `--frames 60`, `--loop-count 2`  
 MP4 生成には [ffmpeg](https://ffmpeg.org/) を要する場合あり。
+
+### Q(Δ) 重ね描き（exp03 / exp05）
+
+```bash
+python optionrun/plot_q_vs_delta_from_run.py --run-dir output/exp03_sweep_delta_l/<YYYYMMDD_HHMMSS>
+```
+
+### 過渡収束確認用相図（exp03 / exp05）
+
+指定 `(l*, Δ)` で再積分し、全軌道（細い青）と Q 評価窓・最終1周期（赤）の s₂* vs s₁* 相図を保存する。
+
+```bash
+python optionrun/plot_phase_portrait_from_sweep_run.py \
+  --run-dir output/exp03_sweep_delta_l/<YYYYMMDD_HHMMSS> \
+  --l 2.0 --delta 1.57
+python optionrun/plot_phase_portrait_from_sweep_run.py \
+  --run-dir output/exp05_sweep_delta_l_wall/<YYYYMMDD_HHMMSS> \
+  --l 2.0 --delta-deg 90
+```
 
 ## 参照
 
