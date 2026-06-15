@@ -41,7 +41,9 @@ SWEEP_GRID_MATCH_ATOL = 1e-9
 
 _EXP03_NAME = "exp03_sweep_delta_l"
 _EXP05_NAME = "exp05_sweep_delta_l_wall"
-_SUPPORTED_SWEEP_EXPERIMENTS = frozenset({_EXP03_NAME, _EXP05_NAME})
+_EXP06_NAME = "exp06_sweep_delta_theta"
+_SUPPORTED_SWEEP_EXPERIMENTS = frozenset({_EXP03_NAME, _EXP05_NAME, _EXP06_NAME})
+_BLAKELET_SWEEP_EXPERIMENTS = frozenset({_EXP05_NAME, _EXP06_NAME})
 
 # ==========================================
 # 1. プロット設定
@@ -190,7 +192,7 @@ def solver_config_from_dict(data: dict[str, Any]) -> SolverConfig:
 
 def load_sweep_run_parameters(run_dir: Path | str) -> SweepRunContext:
     """
-    exp03 / exp05 の parameters.json を読み、再積分用コンテキストを返す。
+    exp03 / exp05 / exp06 の parameters.json を読み、再積分用コンテキストを返す。
 
     Parameters
     ----------
@@ -232,7 +234,7 @@ def load_sweep_run_parameters(run_dir: Path | str) -> SweepRunContext:
     return SweepRunContext(
         run_dir=directory,
         experiment=experiment,
-        use_blakelet=(experiment == _EXP05_NAME),
+        use_blakelet=(experiment in _BLAKELET_SWEEP_EXPERIMENTS),
         defaults=defaults,
         solver_config=solver_config_from_dict(payload["solver"]),
     )
@@ -287,6 +289,59 @@ def lookup_q_delta_l_case(
         )
     row = subset[delta_mask][0]
     return float(row[0]), float(row[1]), float(row[3])
+
+
+def load_delta_opt_vs_l_csv(run_dir: Path | str) -> NDArray[np.float64]:
+    """
+    delta_opt_vs_l.csv を読み込む。
+
+    Returns
+    -------
+    ndarray
+        shape (N, 4): l, delta_opt_rad, delta_opt_deg, Q_max
+    """
+    csv_path = Path(run_dir) / "delta_opt_vs_l.csv"
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"Missing delta_opt_vs_l.csv in run directory: {run_dir}")
+    data = np.loadtxt(csv_path, delimiter=",", skiprows=1, dtype=np.float64)
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    return data
+
+
+def lookup_delta_opt_at_l(
+    *,
+    run_dir: Path | str,
+    l_value: float,
+    atol: float = SWEEP_GRID_MATCH_ATOL,
+) -> tuple[float, float, float, float]:
+    """
+    指定 l* における最適位相差 Delta_opt と Q_max を返す。
+
+    delta_opt_vs_l.csv を優先し、無い場合は q_delta_l.csv から argmax で再計算する。
+
+    Returns
+    -------
+    l_matched, delta_opt_rad, delta_opt_deg, Q_max
+    """
+    directory = Path(run_dir)
+    dopt_path = directory / "delta_opt_vs_l.csv"
+    if dopt_path.is_file():
+        data = load_delta_opt_vs_l_csv(directory)
+        l_mask = np.isclose(data[:, 0], l_value, rtol=0.0, atol=atol)
+        if not np.any(l_mask):
+            raise ValueError(f"No rows for l*={l_value:g} in delta_opt_vs_l.csv.")
+        row = data[l_mask][0]
+        return float(row[0]), float(row[1]), float(row[2]), float(row[3])
+
+    q_data = load_q_delta_l_csv(directory)
+    l_mask = np.isclose(q_data[:, 0], l_value, rtol=0.0, atol=atol)
+    if not np.any(l_mask):
+        raise ValueError(f"No rows for l*={l_value:g} in q_delta_l.csv.")
+    subset = q_data[l_mask]
+    i_peak = int(np.argmax(subset[:, 3]))
+    row = subset[i_peak]
+    return float(row[0]), float(row[1]), float(row[2]), float(row[3])
 
 
 def save_summary(path: Path | str, lines: list[str]) -> None:
@@ -694,6 +749,7 @@ def plot_phase_portrait_convergence_s1_s2(
     delta_deg: float,
     n_periods: int,
     Q: float,
+    delta_label: str | None = None,
     style: PlotStyle | None = None,
     transient_linewidth: float = 0.8,
     steady_linewidth: float = 1.5,
@@ -715,6 +771,9 @@ def plot_phase_portrait_convergence_s1_s2(
         スライダー間距離 l*（タイトル用）。
     delta_deg : float
         位相差 Delta [deg]（タイトル用）。
+    delta_label : str, optional
+        タイトル用の Delta 表示。None なら ``$\\Delta={delta_deg:.2f}$°``。
+        ``r\"$\\Delta_{\\mathrm{opt}}={delta_deg:.2f}$°\"`` などを渡す。
     n_periods : int
         積分周期数（タイトル用）。
     Q : float
@@ -751,19 +810,30 @@ def plot_phase_portrait_convergence_s1_s2(
     )
     axis.set_xlabel(dimless_label("s_1"), fontsize=plot_style.font_size)
     axis.set_ylabel(dimless_label("s_2"), fontsize=plot_style.font_size)
+    delta_title = (
+        delta_label
+        if delta_label is not None
+        else rf"$\Delta={delta_deg:.2f}$°"
+    )
     axis.set_title(
         (
             r"Phase portrait $s_2^{{*}}$ vs $s_1^{{*}}$: "
-            rf"$l^{{*}}={l_value:g}$, $\Delta={delta_deg:.2f}$°, "
+            rf"$l^{{*}}={l_value:g}$, {delta_title}, "
             rf"$n_{{\mathrm{{periods}}}}={n_periods}$, $Q^{{*}}={Q:.4e}$"
         ),
         fontsize=plot_style.font_size,
     )
     axis.set_aspect("equal", adjustable="box")
-    axis.legend(fontsize=plot_style.font_size)
+    axis.legend(
+        fontsize=plot_style.font_size,
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        borderaxespad=0.0,
+    )
     axis.grid(True, alpha=plot_style.grid_alpha)
     fig.tight_layout()
-    fig.savefig(path)
+    fig.subplots_adjust(right=0.82)
+    fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     logger.info("Convergence phase-portrait plot saved: %s", path)
 

@@ -238,16 +238,20 @@ MP4 生成には [ffmpeg](https://ffmpeg.org/) を要する場合あり。
 python optionrun/plot_q_vs_delta_from_run.py --run-dir output/exp03_sweep_delta_l/<YYYYMMDD_HHMMSS>
 ```
 
-### 過渡収束確認用相図（exp03 / exp05）
+### 過渡収束確認用相図（exp03 / exp05 / exp06）
 
-指定 `(l*, Δ)` で再積分し、全軌道（細い青）と Q 評価窓・最終1周期（赤）の s₂* vs s₁* 相図を保存する。
+指定 `l*` で再積分し、全軌道（細い青）と Q 評価窓・最終1周期（赤）の s₂* vs s₁* 相図を保存する。
+**Delta を省略**すると、その run の `delta_opt_vs_l.csv` から `l*` における **Δ_opt** を自動選択する。
 
 ```bash
-python optionrun/plot_phase_portrait_from_sweep_run.py \
-  --run-dir output/exp03_sweep_delta_l/<YYYYMMDD_HHMMSS> \
-  --l 2.0 --delta 1.57
+# l* のみ → その l* で Q を最大化する Δ の相図
 python optionrun/plot_phase_portrait_from_sweep_run.py \
   --run-dir output/exp05_sweep_delta_l_wall/<YYYYMMDD_HHMMSS> \
+  --l 2.0
+
+# 位相差を手動指定する場合（従来どおり）
+python optionrun/plot_phase_portrait_from_sweep_run.py \
+  --run-dir output/exp03_sweep_delta_l/<YYYYMMDD_HHMMSS> \
   --l 2.0 --delta-deg 90
 ```
 
