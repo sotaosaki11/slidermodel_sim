@@ -2,7 +2,8 @@
 
 修士論文第4章の **1次元スライダーモデル**（繊毛簡略化モデル）を Python で段階的に再実装する。  
 論文再現の目標は **正味流量 Q** および **最適位相差 Δ_opt** の再現（exp05 まで）。  
-exp06 では **l\* 固定**のもと x–y 平面内の相対配置角 θ を `EXP06_LAYOUT_THETA` で指定し、θ に応じた流量最大化戦略（Δ_opt, Q_max）の相違を検証する。
+exp06 では **l\* 固定**のもと x–y 平面内の相対配置角 θ を `EXP06_LAYOUT_THETA` で指定し、θ に応じた流量最大化戦略（Δ_opt, Q_max）の相違を検証する。  
+exp07 では **θ 固定**のもと φ×l\* を掃引し、各格子点で Δ を数値最適化して論文 Fig.6 形式のマップ（数値のみ）を出力する。
 
 GitHub リポジトリトップの README は [`../README.md`](../README.md) に配置（内容同期）。
 
@@ -16,6 +17,7 @@ GitHub リポジトリトップの README は [`../README.md`](../README.md) に
 | exp04 | `experiments/exp04_two_sliders_wall.py` | 完了 | 壁あり Blakelet（単点検証） |
 | exp05 | `experiments/exp05_sweep_delta_l_wall.py` | 完了 | 壁あり Blakelet Δ×l 掃引（θ=0） |
 | exp06 | `experiments/exp06_sweep_delta_theta.py` | 完了 | 壁あり Blakelet Δ×l 掃引（配置角 θ 固定、既定 45°） |
+| exp07 | `experiments/exp07_sweep_phi_l.py` | 完了 | 壁あり Blakelet φ×l 掃引（θ 固定、各点で Δ 最適化、Fig.6 形式） |
 
 ### 現モデルの限界
 
@@ -146,6 +148,36 @@ IDE ▷ 実行時は `config/default_params.py` の `EXP06_DEFAULT_MODE` と `EX
 
 **出力物**: exp05 と同型（`q_delta_l.csv`, `delta_opt_vs_l.csv`, ヒートマップ等）
 
+### exp07 — φ×l 掃引（Fig.6 形式数値マップ）
+
+各 (φ, l\*) 格子点で位相差 Δ を [-π, π) 掃引し Q を最大化する Δ_opt を求め、論文 Fig.6 と同形式の数値マップを出力する。**摂動理論のコンターは描かない**（数値結果のみ）。
+
+- **φ (phi)**: スライダー傾き角（縦軸、掃引軸）
+- **θ (layout_theta)**: x-y 平面内配置角（実行中固定）。**θ=0 で論文 Fig.6 配置**
+- 既定物理パラメータ: `k=1`, `ω=2π`。論文 Fig.6 比較時は `default_params.py` の `_EXP07_SWEEP_PHYSICAL` で `k=2`, `omega=π` に変更
+
+```bash
+# 探索（phi 19 × l 19 × Delta 360 点 + Euler）
+python experiments/exp07_sweep_phi_l.py --mode fast --workers 4
+
+# 論文 Fig.6 配置（theta=0°）
+python experiments/exp07_sweep_phi_l.py --mode fast --layout-theta 0
+
+# 高精度（Delta 8000 点 + RK45、q_map.npy 保存）
+python experiments/exp07_sweep_phi_l.py --mode fine --workers 4
+```
+
+`--layout-theta` は**度 [deg]** 単位。IDE ▷ 実行時は `EXP07_DEFAULT_MODE` と `EXP07_LAYOUT_THETA`（rad）を `default_params.py` で変更可能。
+
+**出力先**: `output/exp07_sweep_phi_l/<YYYYMMDD_HHMMSS>/`
+
+**出力物**:
+
+- `fig6_phi_l_combined.png`（Δ/π + log₁₀ Q\*\_max の縦2段）
+- `delta_opt_map_phi_l.png`, `qmax_map_phi_l.png`
+- `delta_opt_map.csv`, `parameters.json`, `summary.txt`
+- `q_map.npy`（fine モードのみ）
+
 ## テスト
 
 ```bash
@@ -157,7 +189,7 @@ python -m unittest discover tests -v
 ```
 cilia_simulation/
 ├── README.md              # 本ファイル
-├── PHYSICS_REPORT.md      # 物理・数学解説（exp01〜exp06）
+├── PHYSICS_REPORT.md      # 物理・数学解説（exp01〜exp07）
 ├── .cursorrules           # コーディング規約
 ├── requirements.txt
 ├── config/
@@ -179,7 +211,8 @@ cilia_simulation/
 │   ├── exp03_sweep_delta_l.py
 │   ├── exp04_two_sliders_wall.py       # Blakelet 単点
 │   ├── exp05_sweep_delta_l_wall.py     # Blakelet Δ×l 掃引（θ=0）
-│   └── exp06_sweep_delta_theta.py      # Blakelet Δ×l 掃引（θ 固定）
+│   ├── exp06_sweep_delta_theta.py      # Blakelet Δ×l 掃引（θ 固定）
+│   └── exp07_sweep_phi_l.py            # Blakelet φ×l 掃引（Fig.6 形式）
 ├── tests/
 │   ├── test_single_slider.py
 │   ├── test_blakelet_mobility.py
@@ -189,6 +222,7 @@ cilia_simulation/
 │   ├── test_exp06_constraint.py
 │   ├── test_exp06_theta_boundary.py
 │   ├── test_exp06_sign_audit.py
+│   ├── test_exp07_sweep.py
 │   ├── test_progress.py
 │   └── test_sweep.py
 ├── optionrun/
@@ -239,6 +273,13 @@ exp05（θ=0, 2×2 拘束）と exp06（θ≠0, 4×4 拘束）で Q(Δ) や Q_ma
 - **配置**: `r_i,base = (±l/2 cos θ, ±l/2 sin θ, h)`（θ=0 で exp05 と一致）
 - **拘束**: θ=0 → `e_s⊥` のみ（2×2）; θ≠0 → `e_s⊥` + `e_y`（4×4）
 - **比較**: exp05（θ=0）と exp06（例: θ=45°）の `delta_opt_vs_l.csv` の Q_max を比較可能
+
+## exp07 — φ×l 掃引（Fig.6 形式、物理モデル）
+
+- **掃引軸**: φ（傾き角）× l\*（スライダー間距離）。各点で Δ を [-π, π) 掃引し argmax Q
+- **配置角 θ**: `EXP07_LAYOUT_THETA` または `--layout-theta`（度）で固定。θ=0 で論文 Fig.6 配置
+- **出力**: Δ/π マップ（symplectic/antiplectic マーカー重畳）と log₁₀ Q\*\_max マップ
+- **パラメータ**: 既定 `k=1`, `ω=2π`。論文 Fig.6 比較は `k=2`, `ω=π` に切替
 
 ## オンデマンド可視化（optionrun）
 

@@ -37,6 +37,7 @@ from core.solver import SolverConfig
 Exp03Mode = Literal["fast", "fine"]
 Exp05Mode = Literal["fast", "fine"]
 Exp06Mode = Literal["fast", "fine"]
+Exp07Mode = Literal["fast", "fine"]
 
 # ==========================================
 # 第1段階 exp01: 単一スライダー（壁なし）
@@ -426,6 +427,115 @@ def resolve_exp06_config(
         raise ValueError(f"Unknown exp06 mode: {mode!r}. Use 'fast' or 'fine'.")
 
     preset = EXP06_SOLVER_PRESETS[mode]
+    solver_config = SolverConfig(
+        method=str(preset["method"]),
+        rtol=float(preset["rtol"]),
+        atol=float(preset["atol"]),
+        n_periods=int(preset["n_periods"]),
+        n_eval_per_period=int(preset["n_eval_per_period"]),
+    )
+    return sweep_defaults, solver_config
+
+
+# ==========================================
+# 第7段階 exp07: phi-l 掃引（配置角 theta 固定、各点で Delta 最適化）
+# ==========================================
+
+# x-y 平面内の相対配置角 [rad]。掃引軸は phi × l。theta=0 で論文 Fig.6 配置。
+EXP07_LAYOUT_THETA: float = 0  
+
+# 現行既定: k=1, omega=2π。論文 Fig.6 は k*=2, omega*=π。
+# Fig.6 と直接比較する場合は k=2.0, omega=math.pi に変更。
+_EXP07_SWEEP_PHYSICAL: dict[str, float] = {
+    "a": 0.05,
+    "mu": 1.0,
+    "k": 2.0,
+    "F_0": 1.0,
+    "omega": math.pi,
+    "h": 1.0,
+    "s1_0": 0.0,
+    "s2_0": 0.0,
+    "layout_theta": EXP07_LAYOUT_THETA,
+    "phi_min": 0.0,
+    "phi_max": math.pi / 2.0,
+    "delta_min": -math.pi,
+    "delta_max": math.pi,
+    "l_min": 1.5,
+    "l_max": 6.0,
+}
+
+_EXP07_SWEEP_GRID: dict[str, dict[str, int]] = {
+    "fast": {
+        "phi_points": 19,
+        "l_points": 19,
+        "delta_points": 360,
+    },
+    "fine": {
+        "phi_points": 19,
+        "l_points": 19,
+        "delta_points": 8000,
+    },
+}
+
+EXP07_SWEEP_FAST_DEFAULTS: dict[str, float | int] = {
+    **_EXP07_SWEEP_PHYSICAL,
+    **_EXP07_SWEEP_GRID["fast"],
+}
+
+EXP07_SWEEP_FINE_DEFAULTS: dict[str, float | int] = {
+    **_EXP07_SWEEP_PHYSICAL,
+    **_EXP07_SWEEP_GRID["fine"],
+}
+
+EXP07_SWEEP_DEFAULTS: dict[str, float | int] = EXP07_SWEEP_FINE_DEFAULTS
+
+EXP07_DEFAULT_MODE: Exp07Mode = "fast"
+
+EXP07_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = {
+    "fast": {
+        "method": "EULER",
+        "n_periods": 10,
+        "n_eval_per_period": 40000,
+        "rtol": 1e-8,
+        "atol": 1e-10,
+    },
+    "fine": {
+        "method": "RK45",
+        "n_periods": 20,
+        "n_eval_per_period": 10000,
+        "rtol": 1e-8,
+        "atol": 1e-10,
+    },
+}
+
+
+def resolve_exp07_config(
+    mode: Exp07Mode = "fast",
+) -> tuple[dict[str, float | int], SolverConfig]:
+    """
+    exp07 phi×l 掃引（layout_theta 固定、各点で Delta 最適化）の設定を mode から返す。
+
+    Parameters
+    ----------
+    mode : {"fast", "fine"}
+        fast: 粗い Delta グリッド + 前進 Euler（探索用）。
+        fine: 密な Delta グリッド + RK45（高精度用）。
+
+    Returns
+    -------
+    sweep_defaults : dict
+        EXP07_SWEEP_FAST_DEFAULTS または EXP07_SWEEP_FINE_DEFAULTS。
+    solver_config : SolverConfig
+        EXP07_SOLVER_PRESETS に対応する積分設定。
+    """
+    if mode == "fast":
+        sweep_defaults = EXP07_SWEEP_FAST_DEFAULTS
+    elif mode == "fine":
+        sweep_defaults = EXP07_SWEEP_FINE_DEFAULTS
+    else:
+        raise ValueError(f"Unknown exp07 mode: {mode!r}. Use 'fast' or 'fine'.")
+
+    preset = EXP07_SOLVER_PRESETS[mode]
     solver_config = SolverConfig(
         method=str(preset["method"]),
         rtol=float(preset["rtol"]),

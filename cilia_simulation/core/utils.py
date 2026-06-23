@@ -42,8 +42,11 @@ SWEEP_GRID_MATCH_ATOL = 1e-9
 _EXP03_NAME = "exp03_sweep_delta_l"
 _EXP05_NAME = "exp05_sweep_delta_l_wall"
 _EXP06_NAME = "exp06_sweep_delta_theta"
-_SUPPORTED_SWEEP_EXPERIMENTS = frozenset({_EXP03_NAME, _EXP05_NAME, _EXP06_NAME})
-_BLAKELET_SWEEP_EXPERIMENTS = frozenset({_EXP05_NAME, _EXP06_NAME})
+_EXP07_NAME = "exp07_sweep_phi_l"
+_SUPPORTED_SWEEP_EXPERIMENTS = frozenset(
+    {_EXP03_NAME, _EXP05_NAME, _EXP06_NAME, _EXP07_NAME}
+)
+_BLAKELET_SWEEP_EXPERIMENTS = frozenset({_EXP05_NAME, _EXP06_NAME, _EXP07_NAME})
 
 # ==========================================
 # 1. プロット設定
@@ -1369,3 +1372,274 @@ def plot_q_vs_delta_multi_theta_from_q_map(
         l_fixed=l_fixed,
         style=style,
     )
+
+
+def _validate_phi_l_map(
+    l_values: ArrayLike,
+    phi_values: ArrayLike,
+    field_map: ArrayLike,
+    *,
+    field_name: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    l_arr = np.asarray(l_values, dtype=np.float64)
+    phi_arr = np.asarray(phi_values, dtype=np.float64)
+    field_arr = np.asarray(field_map, dtype=np.float64)
+    if field_arr.shape != (phi_arr.size, l_arr.size):
+        raise ValueError(
+            f"{field_name} shape must be (len(phi_values), len(l_values))."
+        )
+    if np.any(l_arr <= 0.0):
+        raise ValueError("l_values must be positive for log-scale x axis.")
+    return l_arr, phi_arr, field_arr
+
+
+def _draw_delta_opt_map_phi_l_axis(
+    axis: plt.Axes,
+    l_arr: np.ndarray,
+    phi_arr: np.ndarray,
+    delta_opt_map: np.ndarray,
+    *,
+    plot_style: PlotStyle,
+    show_colorbar: bool,
+    fig: plt.Figure | None = None,
+) -> None:
+    phi_deg = np.degrees(phi_arr)
+    c_norm = delta_opt_map / np.pi
+    l_centers, phi_centers = np.meshgrid(l_arr, phi_deg)
+
+    image = axis.pcolormesh(
+        l_arr,
+        phi_deg,
+        c_norm,
+        shading="auto",
+        cmap="coolwarm",
+        vmin=-1.0,
+        vmax=1.0,
+    )
+    pos_mask = delta_opt_map > 0.0
+    neg_mask = delta_opt_map < 0.0
+    if np.any(pos_mask):
+        axis.scatter(
+            l_centers[pos_mask],
+            phi_centers[pos_mask],
+            marker="^",
+            c=c_norm[pos_mask],
+            cmap="coolwarm",
+            vmin=-1.0,
+            vmax=1.0,
+            s=22.0,
+            edgecolors="black",
+            linewidths=0.25,
+            zorder=3,
+        )
+    if np.any(neg_mask):
+        axis.scatter(
+            l_centers[neg_mask],
+            phi_centers[neg_mask],
+            marker="v",
+            c=c_norm[neg_mask],
+            cmap="coolwarm",
+            vmin=-1.0,
+            vmax=1.0,
+            s=22.0,
+            edgecolors="black",
+            linewidths=0.25,
+            zorder=3,
+        )
+    axis.contour(
+        l_centers,
+        phi_centers,
+        c_norm,
+        levels=[-0.5, 0.5],
+        colors="black",
+        linestyles="--",
+        linewidths=0.8,
+    )
+    axis.set_xscale("log")
+    axis.set_xlabel(dimless_label("l"), fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$\varphi$ [deg]", fontsize=plot_style.font_size)
+    axis.set_title(
+        r"Optimal $\Delta/\pi$ (numerical)",
+        fontsize=plot_style.font_size,
+    )
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    if show_colorbar:
+        if fig is None:
+            fig = axis.figure
+        cbar = fig.colorbar(image, ax=axis)
+        cbar.set_label(r"$\Delta/\pi$", fontsize=plot_style.font_size)
+
+
+def plot_delta_opt_map_phi_l(
+    path: Path | str,
+    l_values: ArrayLike,
+    phi_values: ArrayLike,
+    delta_opt_map: ArrayLike,
+    *,
+    style: PlotStyle | None = None,
+) -> None:
+    """最適 Delta/pi の phi-l マップ（Fig.6 パネル a 形式）を保存する。"""
+    plot_style = style if style is not None else PlotStyle()
+    l_arr, phi_arr, delta_arr = _validate_phi_l_map(
+        l_values,
+        phi_values,
+        delta_opt_map,
+        field_name="delta_opt_map",
+    )
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    _draw_delta_opt_map_phi_l_axis(
+        axis,
+        l_arr,
+        phi_arr,
+        delta_arr,
+        plot_style=plot_style,
+        show_colorbar=True,
+        fig=fig,
+    )
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Delta-opt phi-l map saved: %s", path)
+
+
+def _draw_qmax_map_phi_l_axis(
+    axis: plt.Axes,
+    l_arr: np.ndarray,
+    phi_arr: np.ndarray,
+    qmax_map: np.ndarray,
+    *,
+    plot_style: PlotStyle,
+    show_colorbar: bool,
+    fig: plt.Figure | None = None,
+) -> None:
+    phi_deg = np.degrees(phi_arr)
+    log_q = np.log10(qmax_map)
+    l_centers, phi_centers = np.meshgrid(l_arr, phi_deg)
+
+    image = axis.pcolormesh(
+        l_arr,
+        phi_deg,
+        log_q,
+        shading="auto",
+        cmap="viridis",
+    )
+    axis.contour(
+        l_centers,
+        phi_centers,
+        log_q,
+        levels=[-4.0, -3.0, -2.0],
+        colors="white",
+        linestyles="--",
+        linewidths=0.8,
+    )
+    axis.set_xscale("log")
+    axis.set_xlabel(dimless_label("l"), fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$\varphi$ [deg]", fontsize=plot_style.font_size)
+    axis.set_title(
+        r"$\log_{10} Q^{*}_{\max}$ (numerical)",
+        fontsize=plot_style.font_size,
+    )
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    if show_colorbar:
+        if fig is None:
+            fig = axis.figure
+        cbar = fig.colorbar(image, ax=axis)
+        cbar.set_label(
+            r"$\log_{10} Q^{*}_{\max}$",
+            fontsize=plot_style.font_size,
+        )
+
+
+def plot_qmax_map_phi_l(
+    path: Path | str,
+    l_values: ArrayLike,
+    phi_values: ArrayLike,
+    qmax_map: ArrayLike,
+    *,
+    style: PlotStyle | None = None,
+) -> None:
+    """最大流量 log10(Q_max) の phi-l マップ（Fig.6 パネル b 形式）を保存する。"""
+    plot_style = style if style is not None else PlotStyle()
+    l_arr, phi_arr, qmax_arr = _validate_phi_l_map(
+        l_values,
+        phi_values,
+        qmax_map,
+        field_name="qmax_map",
+    )
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    _draw_qmax_map_phi_l_axis(
+        axis,
+        l_arr,
+        phi_arr,
+        qmax_arr,
+        plot_style=plot_style,
+        show_colorbar=True,
+        fig=fig,
+    )
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Q-max phi-l map saved: %s", path)
+
+
+def plot_fig6_style_phi_l(
+    path: Path | str,
+    l_values: ArrayLike,
+    phi_values: ArrayLike,
+    delta_opt_map: ArrayLike,
+    qmax_map: ArrayLike,
+    *,
+    style: PlotStyle | None = None,
+) -> None:
+    """Fig.6 形式（Delta/pi + log10 Q_max）の縦2段マップを1枚に保存する。"""
+    plot_style = style if style is not None else PlotStyle()
+    l_arr, phi_arr, delta_arr = _validate_phi_l_map(
+        l_values,
+        phi_values,
+        delta_opt_map,
+        field_name="delta_opt_map",
+    )
+    _, _, qmax_arr = _validate_phi_l_map(
+        l_values,
+        phi_values,
+        qmax_map,
+        field_name="qmax_map",
+    )
+
+    fig, (axis_a, axis_b) = plt.subplots(
+        2,
+        1,
+        sharex=True,
+        figsize=(plot_style.figure_width, plot_style.figure_height * 2.0),
+        dpi=plot_style.dpi,
+    )
+    _draw_delta_opt_map_phi_l_axis(
+        axis_a,
+        l_arr,
+        phi_arr,
+        delta_arr,
+        plot_style=plot_style,
+        show_colorbar=True,
+        fig=fig,
+    )
+    _draw_qmax_map_phi_l_axis(
+        axis_b,
+        l_arr,
+        phi_arr,
+        qmax_arr,
+        plot_style=plot_style,
+        show_colorbar=True,
+        fig=fig,
+    )
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Fig.6-style phi-l map saved: %s", path)
