@@ -241,9 +241,9 @@ EXP05_DEFAULT_MODE: Exp05Mode = "fine"
 _EXP05_SWEEP_PHYSICAL: dict[str, float] = {
   "a": 0.05,
   "mu": 1.0,
-  "k": 1.0,
+  "k": 2.0,
   "F_0": 1.0,
-  "omega": 2.0 * math.pi,
+  "omega": math.pi,
   "phi": math.pi / 4.0,
   "h": 1.0,
   "s1_0": 0.0,
@@ -342,9 +342,9 @@ EXP06_LAYOUT_THETA: float = math.pi / 4.0  # 45°
 _EXP06_SWEEP_PHYSICAL: dict[str, float] = {
   "a": 0.05,
   "mu": 1.0,
-  "k": 1.0,
+  "k": 2.0,
   "F_0": 1.0,
-  "omega": 2.0 * math.pi,
+  "omega": math.pi,
   "phi": math.pi / 4.0,
   "h": 1.0,
   "s1_0": 0.0,
