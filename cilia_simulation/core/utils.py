@@ -29,7 +29,9 @@ from collections.abc import Sequence
 from typing import Any
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 from matplotlib.lines import Line2D
+from matplotlib.cm import ScalarMappable
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
@@ -1406,16 +1408,9 @@ def _draw_delta_opt_map_phi_l_axis(
     phi_deg = np.degrees(phi_arr)
     c_norm = delta_opt_map / np.pi
     l_centers, phi_centers = np.meshgrid(l_arr, phi_deg)
+    cmap = plt.get_cmap("coolwarm")
+    norm = Normalize(vmin=-1.0, vmax=1.0)
 
-    image = axis.pcolormesh(
-        l_arr,
-        phi_deg,
-        c_norm,
-        shading="auto",
-        cmap="coolwarm",
-        vmin=-1.0,
-        vmax=1.0,
-    )
     pos_mask = delta_opt_map > 0.0
     neg_mask = delta_opt_map < 0.0
     if np.any(pos_mask):
@@ -1424,9 +1419,8 @@ def _draw_delta_opt_map_phi_l_axis(
             phi_centers[pos_mask],
             marker="^",
             c=c_norm[pos_mask],
-            cmap="coolwarm",
-            vmin=-1.0,
-            vmax=1.0,
+            cmap=cmap,
+            norm=norm,
             s=22.0,
             edgecolors="black",
             linewidths=0.25,
@@ -1438,23 +1432,13 @@ def _draw_delta_opt_map_phi_l_axis(
             phi_centers[neg_mask],
             marker="v",
             c=c_norm[neg_mask],
-            cmap="coolwarm",
-            vmin=-1.0,
-            vmax=1.0,
+            cmap=cmap,
+            norm=norm,
             s=22.0,
             edgecolors="black",
             linewidths=0.25,
             zorder=3,
         )
-    axis.contour(
-        l_centers,
-        phi_centers,
-        c_norm,
-        levels=[-0.5, 0.5],
-        colors="black",
-        linestyles="--",
-        linewidths=0.8,
-    )
     axis.set_xscale("log")
     axis.set_xlabel(dimless_label("l"), fontsize=plot_style.font_size)
     axis.set_ylabel(r"$\varphi$ [deg]", fontsize=plot_style.font_size)
@@ -1466,7 +1450,7 @@ def _draw_delta_opt_map_phi_l_axis(
     if show_colorbar:
         if fig is None:
             fig = axis.figure
-        cbar = fig.colorbar(image, ax=axis)
+        cbar = fig.colorbar(ScalarMappable(norm=norm, cmap=cmap), ax=axis)
         cbar.set_label(r"$\Delta/\pi$", fontsize=plot_style.font_size)
 
 
@@ -1519,23 +1503,24 @@ def _draw_qmax_map_phi_l_axis(
     phi_deg = np.degrees(phi_arr)
     log_q = np.log10(qmax_map)
     l_centers, phi_centers = np.meshgrid(l_arr, phi_deg)
+    finite_mask = np.isfinite(log_q)
+    cmap = plt.get_cmap("viridis")
+    vmin = float(np.min(log_q[finite_mask])) if np.any(finite_mask) else -6.0
+    vmax = float(np.max(log_q[finite_mask])) if np.any(finite_mask) else -2.0
+    norm = Normalize(vmin=vmin, vmax=vmax)
 
-    image = axis.pcolormesh(
-        l_arr,
-        phi_deg,
-        log_q,
-        shading="auto",
-        cmap="viridis",
-    )
-    axis.contour(
-        l_centers,
-        phi_centers,
-        log_q,
-        levels=[-4.0, -3.0, -2.0],
-        colors="white",
-        linestyles="--",
-        linewidths=0.8,
-    )
+    if np.any(finite_mask):
+        axis.scatter(
+            l_centers[finite_mask],
+            phi_centers[finite_mask],
+            c=log_q[finite_mask],
+            cmap=cmap,
+            norm=norm,
+            marker="o",
+            s=28.0,
+            edgecolors="none",
+            zorder=3,
+        )
     axis.set_xscale("log")
     axis.set_xlabel(dimless_label("l"), fontsize=plot_style.font_size)
     axis.set_ylabel(r"$\varphi$ [deg]", fontsize=plot_style.font_size)
@@ -1547,7 +1532,7 @@ def _draw_qmax_map_phi_l_axis(
     if show_colorbar:
         if fig is None:
             fig = axis.figure
-        cbar = fig.colorbar(image, ax=axis)
+        cbar = fig.colorbar(ScalarMappable(norm=norm, cmap=cmap), ax=axis)
         cbar.set_label(
             r"$\log_{10} Q^{*}_{\max}$",
             fontsize=plot_style.font_size,

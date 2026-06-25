@@ -175,8 +175,8 @@ python experiments/exp07_sweep_phi_l.py --mode fine --workers 4
 
 **出力物**:
 
-- `fig6_phi_l_combined.png`（Δ/π + log₁₀ Q\*\_max の縦2段）
-- `delta_opt_map_phi_l.png`, `qmax_map_phi_l.png`
+- `delta_opt_map_phi_l.png`（Δ/π、離散マーカーのみ）
+- `qmax_map_phi_l.png`（log₁₀ Q\*\_max、離散円マーカーのみ）
 - `delta_opt_map.csv`, `parameters.json`, `summary.txt`
 - `q_map.npy`（fine モードのみ）
 
@@ -283,7 +283,7 @@ exp05（θ=0, 2×2 拘束）と exp06（θ≠0, 4×4 拘束）で Q(Δ) や Q_ma
 - **l 格子**: `EXP07_L_VALUES` に列挙した値を直接掃引
 - **配置角 θ**: `EXP07_LAYOUT_THETA` または `--layout-theta`（度）で固定。θ=0 で論文 Fig.6 配置
 - **fast / fine**: Delta 点数と積分設定のみが異なる
-- **出力**: Δ/π マップ（symplectic/antiplectic マーカー重畳）と log₁₀ Q\*\_max マップ
+- **出力**: Δ/π マップ（離散 ^/v マーカー）と log₁₀ Q\*\_max マップ（離散円マーカー）
 - **パラメータ**: 既定 `k=1`, `ω=2π`。論文 Fig.6 比較は `k=2`, `ω=π` に切替
 
 ## オンデマンド可視化（optionrun）

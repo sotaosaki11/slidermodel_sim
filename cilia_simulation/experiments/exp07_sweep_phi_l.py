@@ -4,7 +4,7 @@
 目的:
     論文 Fig.6 と同形式の数値マップを出力する。
     各 (phi, l*) 格子点で位相差 Delta を掃引し Q を最大化する Delta_opt を求める。
-    摂動理論のコンターは描かず、数値シミュレーション結果のみを背景とする。
+    摂動理論のコンターは描かず、数値シミュレーション結果の離散格子点のみを表示する。
 
     phi (傾き角): 掃引軸（縦軸）
     layout_theta (配置角 theta): 実行中固定。theta=0 で論文 Fig.6 配置。
@@ -49,7 +49,6 @@ from core.utils import (
     PlotStyle,
     make_run_directory,
     plot_delta_opt_map_phi_l,
-    plot_fig6_style_phi_l,
     plot_qmax_map_phi_l,
     save_parameters,
     save_summary,
@@ -359,14 +358,6 @@ def run_experiment(
     if mode == "fine":
         np.save(run_dir / "q_map.npy", q_map)
 
-    plot_fig6_style_phi_l(
-        run_dir / "fig6_phi_l_combined.png",
-        l_values,
-        phi_values,
-        delta_opt_map,
-        q_max_map,
-        style=PLOT_STYLE,
-    )
     plot_delta_opt_map_phi_l(
         run_dir / "delta_opt_map_phi_l.png",
         l_values,

@@ -223,7 +223,6 @@ class TestExp07Run(unittest.TestCase):
 
             self.assertEqual(output_dir, run_dir)
             for filename in (
-                "fig6_phi_l_combined.png",
                 "delta_opt_map_phi_l.png",
                 "qmax_map_phi_l.png",
                 "delta_opt_map.csv",

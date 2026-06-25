@@ -138,7 +138,7 @@ python experiments/exp07_sweep_phi_l.py --mode fast --layout-theta 0
 
 **出力先**: `output/exp07_sweep_phi_l/<YYYYMMDD_HHMMSS>/`
 
-**出力物**: `fig6_phi_l_combined.png`, `delta_opt_map_phi_l.png`, `qmax_map_phi_l.png`, `delta_opt_map.csv`, `parameters.json`, `summary.txt`（fine 時 `q_map.npy`）
+**出力物**: `delta_opt_map_phi_l.png`, `qmax_map_phi_l.png`, `delta_opt_map.csv`, `parameters.json`, `summary.txt`（fine 時 `q_map.npy`）。マップは計算格子点のみを離散表示（連続塗りつぶしなし）。
 
 ## テスト
 
@@ -376,7 +376,7 @@ python experiments/exp07_sweep_phi_l.py --mode fast --layout-theta 0
 
 **Output**: `output/exp07_sweep_phi_l/<YYYYMMDD_HHMMSS>/`
 
-**Artifacts**: `fig6_phi_l_combined.png`, `delta_opt_map_phi_l.png`, `qmax_map_phi_l.png`, `delta_opt_map.csv`, `parameters.json`, `summary.txt` (`q_map.npy` in fine mode)
+**Artifacts**: `delta_opt_map_phi_l.png`, `qmax_map_phi_l.png`, `delta_opt_map.csv`, `parameters.json`, `summary.txt` (`q_map.npy` in fine mode). Maps show discrete grid points only (no continuous fill).
 
 ## Tests
 
