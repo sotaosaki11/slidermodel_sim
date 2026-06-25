@@ -14,7 +14,8 @@
     python experiments/exp07_sweep_phi_l.py --mode fast --layout-theta 0
 
 IDE ▷ 実行:
-    config/default_params.py の EXP07_DEFAULT_MODE と EXP07_LAYOUT_THETA を変更する。
+    config/default_params.py の EXP07_DEFAULT_MODE、EXP07_LAYOUT_THETA、
+    EXP07_L_VALUES、EXP07_PHI_MIN_DEG、EXP07_PHI_STEP_DEG を変更する。
     CLI の --mode / --layout-theta はこれらを上書きする。
 """
 
@@ -38,6 +39,7 @@ from config.default_params import (
     EXP07_DEFAULT_MODE,
     EXP07_LAYOUT_THETA,
     Exp07Mode,
+    build_exp07_phi_values,
     resolve_exp07_config,
 )
 from core.solver import SolverConfig
@@ -93,6 +95,27 @@ def _as_float(sweep_defaults: dict[str, float | int], name: str) -> float:
 
 def _as_int(sweep_defaults: dict[str, float | int], name: str) -> int:
     return int(sweep_defaults[name])
+
+
+def _resolve_l_values(sweep_defaults: dict[str, float | int | tuple[float, ...]]) -> np.ndarray:
+    raw = sweep_defaults["l_values"]
+    if not isinstance(raw, (tuple, list)):
+        raise TypeError("l_values must be a sequence of floats.")
+    l_values = np.asarray(raw, dtype=np.float64)
+    if l_values.ndim != 1 or l_values.size == 0:
+        raise ValueError("l_values must be a non-empty 1-D sequence.")
+    if not np.all(np.isfinite(l_values)):
+        raise ValueError("l_values must contain only finite numbers.")
+    return l_values
+
+
+def _resolve_phi_values(sweep_defaults: dict[str, float | int | tuple[float, ...]]) -> np.ndarray:
+    phi_values = build_exp07_phi_values(
+        _as_float(sweep_defaults, "phi_min_deg"),
+        _as_float(sweep_defaults, "phi_step_deg"),
+        _as_float(sweep_defaults, "phi_max_deg"),
+    )
+    return np.asarray(phi_values, dtype=np.float64)
 
 
 def _run_one_case(case: _Exp07Case) -> tuple[int, int, int, float]:
@@ -246,35 +269,20 @@ def run_experiment(
     s1_0 = _as_float(sweep_defaults, "s1_0")
     s2_0 = _as_float(sweep_defaults, "s2_0")
 
-    phi_min = _as_float(sweep_defaults, "phi_min")
-    phi_max = _as_float(sweep_defaults, "phi_max")
-    phi_points = _as_int(sweep_defaults, "phi_points")
+    phi_min_deg = _as_float(sweep_defaults, "phi_min_deg")
+    phi_step_deg = _as_float(sweep_defaults, "phi_step_deg")
+    phi_max_deg = _as_float(sweep_defaults, "phi_max_deg")
     delta_min = _as_float(sweep_defaults, "delta_min")
     delta_max = _as_float(sweep_defaults, "delta_max")
     delta_points = _as_int(sweep_defaults, "delta_points")
-    l_min = _as_float(sweep_defaults, "l_min")
-    l_max = _as_float(sweep_defaults, "l_max")
-    l_points = _as_int(sweep_defaults, "l_points")
 
-    phi_values = np.linspace(
-        phi_min,
-        phi_max,
-        phi_points,
-        endpoint=False,
-        dtype=np.float64,
-    )
+    phi_values = _resolve_phi_values(sweep_defaults)
+    l_values = _resolve_l_values(sweep_defaults)
     delta_values = np.linspace(
         delta_min,
         delta_max,
         delta_points,
         endpoint=False,
-        dtype=np.float64,
-    )
-    l_values = np.linspace(
-        l_min,
-        l_max,
-        l_points,
-        endpoint=True,
         dtype=np.float64,
     )
 
@@ -386,14 +394,14 @@ def run_experiment(
         f"n_eval_per_period: {solver_config.n_eval_per_period}",
         f"layout_theta [rad]: {layout_theta:.8e}",
         f"layout_theta [deg]: {math.degrees(layout_theta):.6f}",
-        f"phi_range [rad]: [{phi_min:.8e}, {phi_max:.8e})",
-        f"phi_range [deg]: [{math.degrees(phi_min):.6f}, {math.degrees(phi_max):.6f})",
-        f"phi_points: {phi_points}",
+        f"phi_sweep [deg]: [{phi_min_deg:.6f}, {phi_max_deg:.6f}) step={phi_step_deg:.6f}",
+        f"phi_points: {phi_values.size} (excludes {phi_max_deg:.6f} deg)",
+        f"phi_range [rad]: [{float(phi_values[0]):.8e}, {float(phi_values[-1]):.8e}]",
         f"delta_range [rad]: [{delta_min:.8e}, {delta_max:.8e})",
         f"delta_range [deg]: [{math.degrees(delta_min):.6f}, {math.degrees(delta_max):.6f})",
         f"delta_points: {delta_points}",
-        f"l_range: [{l_min:.8e}, {l_max:.8e}]",
-        f"l_points: {l_points}",
+        f"l_values: {', '.join(f'{float(l):.8e}' for l in l_values)}",
+        f"l_points: {l_values.size}",
         f"Q_min: {float(np.min(q_map)):.8e}",
         f"Q_max: {float(np.max(q_map)):.8e}",
         f"global_opt_phi [rad]: {float(phi_values[i_phi_opt]):.8e}",

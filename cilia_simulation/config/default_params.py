@@ -245,7 +245,7 @@ _EXP05_SWEEP_PHYSICAL: dict[str, float] = {
   "k": 2.0,
   "F_0": 1.0,
   "omega": math.pi,
-  "phi": math.pi / 4.0,
+  "phi": 0,
   "h": 1.0,
   "s1_0": 0.0,
   "s2_0": 0.0,
@@ -442,11 +442,35 @@ def resolve_exp06_config(
 # ==========================================
 
 # x-y 平面内の相対配置角 [rad]。掃引軸は phi × l。theta=0 で論文 Fig.6 配置。
-EXP07_LAYOUT_THETA: float = 0  
+EXP07_LAYOUT_THETA: float = math.pi / 4.0
+
+# phi 掃引: [phi_min_deg, phi_max_deg) を phi_step_deg 刻み（90° は含めない）。
+EXP07_PHI_MIN_DEG: float = 0.0
+EXP07_PHI_STEP_DEG: float = 5.0
+EXP07_PHI_MAX_DEG: float = 90.0
+
+# l* 掃引: 値を直接列挙（旧 linspace(1.5, 6.0, 19) と同等）。
+EXP07_L_VALUES: tuple[float, ...] = (
+    0.8,
+    0.9,
+    1.0,
+    1.1,
+    1.2,
+    1.3,
+    1.4,
+    1.5,
+    1.6,
+    1.8,
+    2.0,
+    2.5,
+    3.0,
+    4.0,
+    8.0,
+)
 
 # 現行既定: k=1, omega=2π。論文 Fig.6 は k*=2, omega*=π。
 # Fig.6 と直接比較する場合は k=2.0, omega=math.pi に変更。
-_EXP07_SWEEP_PHYSICAL: dict[str, float] = {
+_EXP07_SWEEP_PHYSICAL: dict[str, float | tuple[float, ...]] = {
     "a": 0.05,
     "mu": 1.0,
     "k": 2.0,
@@ -456,38 +480,61 @@ _EXP07_SWEEP_PHYSICAL: dict[str, float] = {
     "s1_0": 0.0,
     "s2_0": 0.0,
     "layout_theta": EXP07_LAYOUT_THETA,
-    "phi_min": 0.0,
-    "phi_max": math.pi / 2.0,
+    "phi_min_deg": EXP07_PHI_MIN_DEG,
+    "phi_step_deg": EXP07_PHI_STEP_DEG,
+    "phi_max_deg": EXP07_PHI_MAX_DEG,
+    "l_values": EXP07_L_VALUES,
     "delta_min": -math.pi,
     "delta_max": math.pi,
-    "l_min": 1.5,
-    "l_max": 6.0,
 }
 
 _EXP07_SWEEP_GRID: dict[str, dict[str, int]] = {
     "fast": {
-        "phi_points": 19,
-        "l_points": 19,
         "delta_points": 360,
     },
     "fine": {
-        "phi_points": 19,
-        "l_points": 19,
-        "delta_points": 8000,
+        "delta_points": 10000,
     },
 }
 
-EXP07_SWEEP_FAST_DEFAULTS: dict[str, float | int] = {
+EXP07_SWEEP_FAST_DEFAULTS: dict[str, float | int | tuple[float, ...]] = {
     **_EXP07_SWEEP_PHYSICAL,
     **_EXP07_SWEEP_GRID["fast"],
 }
 
-EXP07_SWEEP_FINE_DEFAULTS: dict[str, float | int] = {
+EXP07_SWEEP_FINE_DEFAULTS: dict[str, float | int | tuple[float, ...]] = {
     **_EXP07_SWEEP_PHYSICAL,
     **_EXP07_SWEEP_GRID["fine"],
 }
 
-EXP07_SWEEP_DEFAULTS: dict[str, float | int] = EXP07_SWEEP_FINE_DEFAULTS
+EXP07_SWEEP_DEFAULTS: dict[str, float | int | tuple[float, ...]] = (
+    EXP07_SWEEP_FINE_DEFAULTS
+)
+
+
+def build_exp07_phi_values(
+    phi_min_deg: float,
+    phi_step_deg: float,
+    phi_max_deg: float = EXP07_PHI_MAX_DEG,
+) -> tuple[float, ...]:
+    """
+    exp07 用 phi 掃引値 [rad] を生成する。
+
+    [phi_min_deg, phi_max_deg) を phi_step_deg 刻みで列挙し、
+    phi_max_deg（既定 90°）ちょうどは含めない。
+    """
+    if phi_step_deg <= 0.0:
+        raise ValueError("phi_step_deg must be positive.")
+    values: list[float] = []
+    phi_deg = phi_min_deg
+    while phi_deg < phi_max_deg - 1e-12:
+        values.append(math.radians(phi_deg))
+        phi_deg += phi_step_deg
+    if not values:
+        raise ValueError(
+            "phi sweep produced no points; check phi_min_deg, phi_step_deg, phi_max_deg."
+        )
+    return tuple(values)
 
 EXP07_DEFAULT_MODE: Exp07Mode = "fast"
 

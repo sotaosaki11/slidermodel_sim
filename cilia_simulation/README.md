@@ -152,8 +152,10 @@ IDE ▷ 実行時は `config/default_params.py` の `EXP06_DEFAULT_MODE` と `EX
 
 各 (φ, l\*) 格子点で位相差 Δ を [-π, π) 掃引し Q を最大化する Δ_opt を求め、論文 Fig.6 と同形式の数値マップを出力する。**摂動理論のコンターは描かない**（数値結果のみ）。
 
-- **φ (phi)**: スライダー傾き角（縦軸、掃引軸）
+- **φ (phi)**: スライダー傾き角（縦軸、掃引軸）。`EXP07_PHI_MIN_DEG` と `EXP07_PHI_STEP_DEG` で `[0°, 90°)` を掃引（90° は含めない）
+- **l\***: `EXP07_L_VALUES` に列挙した値を直接掃引
 - **θ (layout_theta)**: x-y 平面内配置角（実行中固定）。**θ=0 で論文 Fig.6 配置**
+- **fast / fine**: Delta 点数と積分設定のみが異なる（φ・l 格子は共通）
 - 既定物理パラメータ: `k=1`, `ω=2π`。論文 Fig.6 比較時は `default_params.py` の `_EXP07_SWEEP_PHYSICAL` で `k=2`, `omega=π` に変更
 
 ```bash
@@ -167,7 +169,7 @@ python experiments/exp07_sweep_phi_l.py --mode fast --layout-theta 0
 python experiments/exp07_sweep_phi_l.py --mode fine --workers 4
 ```
 
-`--layout-theta` は**度 [deg]** 単位。IDE ▷ 実行時は `EXP07_DEFAULT_MODE` と `EXP07_LAYOUT_THETA`（rad）を `default_params.py` で変更可能。
+`--layout-theta` は**度 [deg]** 単位。IDE ▷ 実行時は `EXP07_DEFAULT_MODE`、`EXP07_LAYOUT_THETA`（rad）、`EXP07_L_VALUES`、`EXP07_PHI_MIN_DEG`、`EXP07_PHI_STEP_DEG` を `default_params.py` で変更可能。
 
 **出力先**: `output/exp07_sweep_phi_l/<YYYYMMDD_HHMMSS>/`
 
@@ -277,7 +279,10 @@ exp05（θ=0, 2×2 拘束）と exp06（θ≠0, 4×4 拘束）で Q(Δ) や Q_ma
 ## exp07 — φ×l 掃引（Fig.6 形式、物理モデル）
 
 - **掃引軸**: φ（傾き角）× l\*（スライダー間距離）。各点で Δ を [-π, π) 掃引し argmax Q
+- **φ 格子**: `EXP07_PHI_MIN_DEG` + `EXP07_PHI_STEP_DEG` で `[0°, 90°)`（90° 除外）
+- **l 格子**: `EXP07_L_VALUES` に列挙した値を直接掃引
 - **配置角 θ**: `EXP07_LAYOUT_THETA` または `--layout-theta`（度）で固定。θ=0 で論文 Fig.6 配置
+- **fast / fine**: Delta 点数と積分設定のみが異なる
 - **出力**: Δ/π マップ（symplectic/antiplectic マーカー重畳）と log₁₀ Q\*\_max マップ
 - **パラメータ**: 既定 `k=1`, `ω=2π`。論文 Fig.6 比較は `k=2`, `ω=π` に切替
 

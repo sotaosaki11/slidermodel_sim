@@ -129,7 +129,7 @@ IDE ▷ 実行時は `config/default_params.py` の `EXP06_DEFAULT_MODE` と `EX
 
 ### exp07 — φ×l 掃引（Fig.6 形式数値マップ）
 
-各 (φ, l\*) 格子点で Δ を掃引し Q を最大化する Δ_opt を求め、論文 Fig.6 と同形式の数値マップを出力する（摂動コンターなし）。**θ=0 で論文 Fig.6 配置**。`--layout-theta` は**度 [deg]**。
+各 (φ, l\*) 格子点で Δ を掃引し Q を最大化する Δ_opt を求め、論文 Fig.6 と同形式の数値マップを出力する（摂動コンターなし）。**θ=0 で論文 Fig.6 配置**。`--layout-theta` は**度 [deg]**。φ は `EXP07_PHI_MIN_DEG` + `EXP07_PHI_STEP_DEG` で `[0°, 90°)`、l は `EXP07_L_VALUES` で直接指定。fast/fine は Delta 点数と積分のみ異なる。
 
 ```bash
 python experiments/exp07_sweep_phi_l.py --mode fast --workers 4
@@ -202,7 +202,10 @@ exp05（θ=0, 2×2 拘束）と exp06（θ≠0, 4×4 拘束）で Q_max が異�
 ## exp07 — φ×l 掃引（Fig.6 形式、物理モデル）
 
 - **掃引軸**: φ（傾き角）× l\*。各点で Δ を最適化
+- **φ 格子**: `EXP07_PHI_MIN_DEG` + `EXP07_PHI_STEP_DEG` で `[0°, 90°)`（90° 除外）
+- **l 格子**: `EXP07_L_VALUES` に列挙した値を直接掃引
 - **配置角 θ**: `EXP07_LAYOUT_THETA` または `--layout-theta`（度）で固定。θ=0 で論文 Fig.6 配置
+- **fast / fine**: Delta 点数と積分設定のみが異なる
 - **既定**: `k=1`, `ω=2π`。論文 Fig.6 比較は `k=2`, `ω=π` に切替
 
 ## オンデマンド可視化（optionrun）
@@ -364,7 +367,7 @@ When running via the IDE ▷ button, set `EXP06_DEFAULT_MODE` and `EXP06_LAYOUT_
 
 ### exp07 — φ×l Sweep (Fig.6-Style Numerical Maps)
 
-At each (φ, l\*) grid point, Δ is swept and the Q-maximizing Δ_opt is found. Outputs Fig.6-style maps (numerical only, no perturbation contours). **θ=0 reproduces paper Fig.6 geometry**. `--layout-theta` is in **degrees**.
+At each (φ, l\*) grid point, Δ is swept and the Q-maximizing Δ_opt is found. Outputs Fig.6-style maps (numerical only, no perturbation contours). **θ=0 reproduces paper Fig.6 geometry**. `--layout-theta` is in **degrees**. φ uses `EXP07_PHI_MIN_DEG` + `EXP07_PHI_STEP_DEG` over `[0°, 90°)` (90° excluded); l uses explicit `EXP07_L_VALUES`. fast/fine differ only in Delta grid and integration.
 
 ```bash
 python experiments/exp07_sweep_phi_l.py --mode fast --workers 4
@@ -437,7 +440,10 @@ Differences in Q_max between exp05 (θ=0, 2×2 constraints) and exp06 (θ≠0, 4
 ## exp07 — φ×l Sweep (Fig.6 Style, Physical Model)
 
 - **Sweep axes**: φ (tilt angle) × l\*. Δ is optimized at each grid point
+- **φ grid**: `EXP07_PHI_MIN_DEG` + `EXP07_PHI_STEP_DEG` over `[0°, 90°)` (90° excluded)
+- **l grid**: explicit values in `EXP07_L_VALUES`
 - **Layout angle θ**: fixed via `EXP07_LAYOUT_THETA` or `--layout-theta` (degrees). θ=0 for paper Fig.6 geometry
+- **fast / fine**: differ only in Delta grid and integration settings
 - **Defaults**: `k=1`, `ω=2π`. For paper Fig.6 comparison, switch to `k=2`, `ω=π`
 
 ## On-Demand Visualization (optionrun)

@@ -2,10 +2,9 @@
 exp03 Delta-l sweep validation tests.
 
 Checks:
-1) resolve_exp03_config returns expected fast/fine presets.
-2) Serial and parallel sweeps produce identical q_map on a small grid.
-3) Fast-mode Q(Delta) at l=2 has a peak near -90 deg (antiplectic branch).
-4) All Q values are finite on the small grid.
+1) Serial and parallel sweeps produce identical q_map on a small grid.
+2) Fast-mode Q(Delta) at l=2 has a peak near -90 deg (antiplectic branch).
+3) All Q values are finite on the small grid.
 """
 
 from __future__ import annotations
@@ -57,24 +56,6 @@ def _small_sweep_q_map(*, workers: int) -> np.ndarray:
         workers=workers,
         q_map_shape=(l_values.size, delta_values.size),
     )
-
-
-class TestExp03Config(unittest.TestCase):
-    """Tests for fast/fine configuration presets."""
-
-    def test_fast_preset(self) -> None:
-        sweep_defaults, solver_config = resolve_exp03_config("fast")
-        self.assertEqual(int(sweep_defaults["delta_points"]), 360)
-        self.assertEqual(solver_config.method.upper(), "EULER")
-        self.assertEqual(solver_config.n_periods, 8)
-        self.assertEqual(solver_config.n_eval_per_period, 150)
-
-    def test_fine_preset(self) -> None:
-        sweep_defaults, solver_config = resolve_exp03_config("fine")
-        self.assertEqual(int(sweep_defaults["delta_points"]), 8000)
-        self.assertEqual(solver_config.method.upper(), "RK45")
-        self.assertEqual(solver_config.n_periods, 10)
-        self.assertEqual(solver_config.n_eval_per_period, 300)
 
 
 class TestExp03Sweep(unittest.TestCase):

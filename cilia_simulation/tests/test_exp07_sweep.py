@@ -25,11 +25,21 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.default_params import EXP07_LAYOUT_THETA, resolve_exp07_config
+from config.default_params import (
+    EXP07_LAYOUT_THETA,
+    EXP07_L_VALUES,
+    EXP07_PHI_MAX_DEG,
+    EXP07_PHI_MIN_DEG,
+    EXP07_PHI_STEP_DEG,
+    build_exp07_phi_values,
+    resolve_exp07_config,
+)
 from core.solver import SolverConfig
 from experiments.exp07_sweep_phi_l import (
     _build_cases,
     _postprocess_maps,
+    _resolve_l_values,
+    _resolve_phi_values,
     _sweep_q_map,
     run_experiment,
 )
@@ -45,12 +55,14 @@ def _tiny_solver_config() -> SolverConfig:
     )
 
 
-def _small_grid_defaults() -> dict[str, float | int]:
+def _small_grid_defaults() -> dict[str, float | int | tuple[float, ...]]:
     sweep_defaults, _ = resolve_exp07_config("fast")
     return {
         **sweep_defaults,
-        "phi_points": 3,
-        "l_points": 3,
+        "phi_min_deg": 0.0,
+        "phi_step_deg": 30.0,
+        "phi_max_deg": 90.0,
+        "l_values": (1.5, 3.0, 6.0),
         "delta_points": 8,
     }
 
@@ -59,20 +71,8 @@ def _small_sweep_q_map(*, workers: int, layout_theta: float | None = None) -> np
     sweep_defaults = _small_grid_defaults()
     if layout_theta is None:
         layout_theta = float(sweep_defaults["layout_theta"])
-    phi_values = np.linspace(
-        float(sweep_defaults["phi_min"]),
-        float(sweep_defaults["phi_max"]),
-        int(sweep_defaults["phi_points"]),
-        endpoint=False,
-        dtype=np.float64,
-    )
-    l_values = np.linspace(
-        float(sweep_defaults["l_min"]),
-        float(sweep_defaults["l_max"]),
-        int(sweep_defaults["l_points"]),
-        endpoint=True,
-        dtype=np.float64,
-    )
+    phi_values = _resolve_phi_values(sweep_defaults)
+    l_values = _resolve_l_values(sweep_defaults)
     delta_values = np.linspace(
         -math.pi,
         math.pi,
@@ -103,14 +103,29 @@ def _small_sweep_q_map(*, workers: int, layout_theta: float | None = None) -> np
 
 
 class TestExp07Config(unittest.TestCase):
+    def test_build_phi_values_excludes_90_deg(self) -> None:
+        phi_values = build_exp07_phi_values(0.0, 30.0, 90.0)
+        self.assertEqual(len(phi_values), 3)
+        self.assertAlmostEqual(math.degrees(phi_values[-1]), 60.0)
+        self.assertTrue(all(math.degrees(phi) < 90.0 for phi in phi_values))
+
     def test_fast_preset(self) -> None:
         sweep_defaults, solver_config = resolve_exp07_config("fast")
-        self.assertEqual(int(sweep_defaults["phi_points"]), 19)
-        self.assertEqual(int(sweep_defaults["l_points"]), 19)
+        phi_values = build_exp07_phi_values(
+            float(sweep_defaults["phi_min_deg"]),
+            float(sweep_defaults["phi_step_deg"]),
+            float(sweep_defaults["phi_max_deg"]),
+        )
+        self.assertEqual(len(phi_values), 19)
+        self.assertEqual(len(sweep_defaults["l_values"]), 19)
+        self.assertEqual(sweep_defaults["l_values"], EXP07_L_VALUES)
+        self.assertAlmostEqual(float(sweep_defaults["phi_min_deg"]), EXP07_PHI_MIN_DEG)
+        self.assertAlmostEqual(float(sweep_defaults["phi_step_deg"]), EXP07_PHI_STEP_DEG)
+        self.assertAlmostEqual(float(sweep_defaults["phi_max_deg"]), EXP07_PHI_MAX_DEG)
         self.assertEqual(int(sweep_defaults["delta_points"]), 360)
         self.assertAlmostEqual(float(sweep_defaults["layout_theta"]), EXP07_LAYOUT_THETA)
-        self.assertAlmostEqual(float(sweep_defaults["k"]), 1.0)
-        self.assertAlmostEqual(float(sweep_defaults["omega"]), 2.0 * math.pi)
+        self.assertAlmostEqual(float(sweep_defaults["k"]), 2.0)
+        self.assertAlmostEqual(float(sweep_defaults["omega"]), math.pi)
         self.assertEqual(solver_config.method.upper(), "EULER")
         self.assertEqual(solver_config.n_periods, 10)
 
@@ -123,18 +138,8 @@ class TestExp07Config(unittest.TestCase):
 class TestExp07Sweep(unittest.TestCase):
     def test_case_count_matches_grid(self) -> None:
         sweep_defaults = _small_grid_defaults()
-        phi_values = np.linspace(
-            float(sweep_defaults["phi_min"]),
-            float(sweep_defaults["phi_max"]),
-            int(sweep_defaults["phi_points"]),
-            endpoint=False,
-        )
-        l_values = np.linspace(
-            float(sweep_defaults["l_min"]),
-            float(sweep_defaults["l_max"]),
-            int(sweep_defaults["l_points"]),
-            endpoint=True,
-        )
+        phi_values = _resolve_phi_values(sweep_defaults)
+        l_values = _resolve_l_values(sweep_defaults)
         delta_values = np.linspace(-math.pi, math.pi, 8, endpoint=False)
         cases = _build_cases(
             phi_values=phi_values,
@@ -180,8 +185,8 @@ class TestExp07Run(unittest.TestCase):
     def test_run_experiment_smoke(self) -> None:
         sweep_defaults = _small_grid_defaults()
         _, solver_config = resolve_exp07_config("fast")
-        phi_values = np.linspace(0.0, math.pi / 2.0, 3, endpoint=False)
-        l_values = np.linspace(1.5, 6.0, 3, endpoint=True)
+        phi_values = _resolve_phi_values(sweep_defaults)
+        l_values = _resolve_l_values(sweep_defaults)
         delta_values = np.linspace(-math.pi, math.pi, 8, endpoint=False)
         fake_q_map = np.random.default_rng(0).random(
             (phi_values.size, l_values.size, delta_values.size),
