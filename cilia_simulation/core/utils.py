@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime
 from pathlib import Path
@@ -45,10 +46,13 @@ _EXP03_NAME = "exp03_sweep_delta_l"
 _EXP05_NAME = "exp05_sweep_delta_l_wall"
 _EXP06_NAME = "exp06_sweep_delta_theta"
 _EXP07_NAME = "exp07_sweep_phi_l"
+_EXP08_NAME = "exp08_sweep_theta_phi_l"
 _SUPPORTED_SWEEP_EXPERIMENTS = frozenset(
-    {_EXP03_NAME, _EXP05_NAME, _EXP06_NAME, _EXP07_NAME}
+    {_EXP03_NAME, _EXP05_NAME, _EXP06_NAME, _EXP07_NAME, _EXP08_NAME}
 )
-_BLAKELET_SWEEP_EXPERIMENTS = frozenset({_EXP05_NAME, _EXP06_NAME, _EXP07_NAME})
+_BLAKELET_SWEEP_EXPERIMENTS = frozenset(
+    {_EXP05_NAME, _EXP06_NAME, _EXP07_NAME, _EXP08_NAME}
+)
 
 # ==========================================
 # 1. プロット設定
@@ -1499,14 +1503,24 @@ def _draw_qmax_map_phi_l_axis(
     plot_style: PlotStyle,
     show_colorbar: bool,
     fig: plt.Figure | None = None,
+    log_q_vmin: float | None = None,
+    log_q_vmax: float | None = None,
 ) -> None:
     phi_deg = np.degrees(phi_arr)
     log_q = np.log10(qmax_map)
     l_centers, phi_centers = np.meshgrid(l_arr, phi_deg)
     finite_mask = np.isfinite(log_q)
     cmap = plt.get_cmap("viridis")
-    vmin = float(np.min(log_q[finite_mask])) if np.any(finite_mask) else -6.0
-    vmax = float(np.max(log_q[finite_mask])) if np.any(finite_mask) else -2.0
+    vmin = (
+        float(log_q_vmin)
+        if log_q_vmin is not None
+        else float(np.min(log_q[finite_mask])) if np.any(finite_mask) else -6.0
+    )
+    vmax = (
+        float(log_q_vmax)
+        if log_q_vmax is not None
+        else float(np.max(log_q[finite_mask])) if np.any(finite_mask) else -2.0
+    )
     norm = Normalize(vmin=vmin, vmax=vmax)
 
     if np.any(finite_mask):
@@ -1628,3 +1642,505 @@ def plot_fig6_style_phi_l(
     fig.savefig(path)
     plt.close(fig)
     logger.info("Fig.6-style phi-l map saved: %s", path)
+
+
+# exp08: theta スイープ可視化
+def extract_inversion_boundary(
+    phi_values: ArrayLike,
+    l_values: ArrayLike,
+    coordination_map: ArrayLike,
+    *,
+    theta_deg: float,
+) -> list[tuple[float, float, float]]:
+    """
+    coordination の符号反転点を phi 方向に追跡し (theta_deg, l, phi_crit_deg) の行を返す。
+    """
+    phi_arr = np.asarray(phi_values, dtype=np.float64)
+    l_arr = np.asarray(l_values, dtype=np.float64)
+    coord_arr = np.asarray(coordination_map, dtype=np.float64)
+    if coord_arr.shape != (phi_arr.size, l_arr.size):
+        raise ValueError(
+            "coordination_map shape must be (len(phi_values), len(l_values))."
+        )
+
+    phi_deg = np.degrees(phi_arr)
+    rows: list[tuple[float, float, float]] = []
+    for i_l, l_value in enumerate(l_arr):
+        coord_col = coord_arr[:, i_l]
+        for i_phi in range(phi_arr.size - 1):
+            s0 = float(coord_col[i_phi])
+            s1 = float(coord_col[i_phi + 1])
+            if s0 == 0.0 or s1 == 0.0 or s0 * s1 >= 0.0:
+                continue
+            frac = abs(s0) / (abs(s0) + abs(s1))
+            phi_crit = float(phi_deg[i_phi] + frac * (phi_deg[i_phi + 1] - phi_deg[i_phi]))
+            rows.append((float(theta_deg), float(l_value), phi_crit))
+    return rows
+
+
+def plot_delta_opt_small_multiples_theta(
+    path: Path | str,
+    l_values: ArrayLike,
+    phi_values: ArrayLike,
+    theta_values_deg: ArrayLike,
+    delta_opt_maps: Sequence[ArrayLike],
+    *,
+    ncols: int = 5,
+    style: PlotStyle | None = None,
+) -> None:
+    """各 theta の Delta/pi phi-l マップを小倍数で1枚に保存する（exp08）。"""
+    plot_style = style if style is not None else PlotStyle()
+    theta_deg_arr = np.asarray(theta_values_deg, dtype=np.float64)
+    if len(delta_opt_maps) != theta_deg_arr.size:
+        raise ValueError("len(delta_opt_maps) must match len(theta_values_deg).")
+
+    n_panels = theta_deg_arr.size
+    nrows = int(math.ceil(n_panels / ncols))
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        sharex=True,
+        sharey=True,
+        figsize=(plot_style.figure_width * 1.6, plot_style.figure_height * 1.4),
+        dpi=plot_style.dpi,
+        squeeze=False,
+    )
+    cmap = plt.get_cmap("coolwarm")
+    norm = Normalize(vmin=-1.0, vmax=1.0)
+
+    for index in range(nrows * ncols):
+        row, col = divmod(index, ncols)
+        axis = axes[row, col]
+        if index >= n_panels:
+            axis.axis("off")
+            continue
+        l_arr, phi_arr, delta_arr = _validate_phi_l_map(
+            l_values,
+            phi_values,
+            delta_opt_maps[index],
+            field_name="delta_opt_map",
+        )
+        _draw_delta_opt_map_phi_l_axis(
+            axis,
+            l_arr,
+            phi_arr,
+            delta_arr,
+            plot_style=plot_style,
+            show_colorbar=False,
+        )
+        axis.set_title(
+            rf"$\theta={theta_deg_arr[index]:g}^\circ$",
+            fontsize=plot_style.font_size - 1,
+        )
+
+    fig.subplots_adjust(right=0.9)
+    cbar = fig.colorbar(
+        ScalarMappable(norm=norm, cmap=cmap),
+        ax=axes.ravel().tolist(),
+        fraction=0.02,
+        pad=0.02,
+    )
+    cbar.set_label(r"$\Delta/\pi$", fontsize=plot_style.font_size)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Delta-opt small multiples (theta) saved: %s", path)
+
+
+def plot_qmax_small_multiples_theta(
+    path: Path | str,
+    l_values: ArrayLike,
+    phi_values: ArrayLike,
+    theta_values_deg: ArrayLike,
+    qmax_maps: Sequence[ArrayLike],
+    *,
+    ncols: int = 5,
+    style: PlotStyle | None = None,
+) -> None:
+    """各 theta の log10(Q_max) phi-l マップを小倍数で1枚に保存する（exp08）。"""
+    plot_style = style if style is not None else PlotStyle()
+    theta_deg_arr = np.asarray(theta_values_deg, dtype=np.float64)
+    if len(qmax_maps) != theta_deg_arr.size:
+        raise ValueError("len(qmax_maps) must match len(theta_values_deg).")
+
+    all_log_q: list[float] = []
+    validated_maps: list[np.ndarray] = []
+    l_arr, phi_arr, _ = _validate_phi_l_map(
+        l_values,
+        phi_values,
+        qmax_maps[0],
+        field_name="qmax_map",
+    )
+    for qmap in qmax_maps:
+        _, _, qmax_arr = _validate_phi_l_map(
+            l_values,
+            phi_values,
+            qmap,
+            field_name="qmax_map",
+        )
+        validated_maps.append(qmax_arr)
+        log_q = np.log10(qmax_arr)
+        finite = log_q[np.isfinite(log_q)]
+        if finite.size:
+            all_log_q.extend(finite.tolist())
+
+    vmin = float(np.min(all_log_q)) if all_log_q else -6.0
+    vmax = float(np.max(all_log_q)) if all_log_q else -2.0
+    norm = Normalize(vmin=vmin, vmax=vmax)
+    cmap = plt.get_cmap("viridis")
+
+    n_panels = theta_deg_arr.size
+    nrows = int(math.ceil(n_panels / ncols))
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        sharex=True,
+        sharey=True,
+        figsize=(plot_style.figure_width * 1.6, plot_style.figure_height * 1.4),
+        dpi=plot_style.dpi,
+        squeeze=False,
+    )
+
+    for index in range(nrows * ncols):
+        row, col = divmod(index, ncols)
+        axis = axes[row, col]
+        if index >= n_panels:
+            axis.axis("off")
+            continue
+        _draw_qmax_map_phi_l_axis(
+            axis,
+            l_arr,
+            phi_arr,
+            validated_maps[index],
+            plot_style=plot_style,
+            show_colorbar=False,
+            log_q_vmin=vmin,
+            log_q_vmax=vmax,
+        )
+        axis.set_title(
+            rf"$\theta={theta_deg_arr[index]:g}^\circ$",
+            fontsize=plot_style.font_size - 1,
+        )
+
+    fig.subplots_adjust(right=0.9)
+    cbar = fig.colorbar(
+        ScalarMappable(norm=norm, cmap=cmap),
+        ax=axes.ravel().tolist(),
+        fraction=0.02,
+        pad=0.02,
+    )
+    cbar.set_label(r"$\log_{10} Q_{\max}$", fontsize=plot_style.font_size)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Q-max small multiples (theta) saved: %s", path)
+
+
+def plot_inversion_boundary_theta_phi(
+    path: Path | str,
+    boundary_rows: Sequence[tuple[float, float, float]],
+    *,
+    l_fixed: float,
+    style: PlotStyle | None = None,
+) -> None:
+    """固定 l* における反転境界 phi_crit(theta) を保存する（exp08）。"""
+    plot_style = style if style is not None else PlotStyle()
+    selected = [
+        (theta_deg, phi_crit)
+        for theta_deg, l_value, phi_crit in boundary_rows
+        if abs(l_value - l_fixed) < 1e-9
+    ]
+    if not selected:
+        raise ValueError(f"No inversion boundary rows for l*={l_fixed:g}.")
+
+    theta_deg = [row[0] for row in selected]
+    phi_crit = [row[1] for row in selected]
+    order = np.argsort(theta_deg)
+    theta_sorted = np.asarray(theta_deg, dtype=np.float64)[order]
+    phi_sorted = np.asarray(phi_crit, dtype=np.float64)[order]
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    axis.plot(
+        theta_sorted,
+        phi_sorted,
+        color=plot_style.color_primary,
+        linewidth=plot_style.line_width,
+        marker="o",
+        markersize=4.0,
+        label=rf"$l^{{*}}={l_fixed:g}$",
+    )
+    axis.set_xlabel(r"$\theta$ [deg]", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$\varphi_{\mathrm{crit}}$ [deg]", fontsize=plot_style.font_size)
+    axis.set_title(
+        rf"$\Delta$ sign-inversion boundary at $l^{{*}}={l_fixed:g}$",
+        fontsize=plot_style.font_size,
+    )
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    axis.legend(fontsize=plot_style.font_size)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Inversion boundary (theta-phi) saved: %s", path)
+
+
+def plot_inversion_boundary_multi_l(
+    path: Path | str,
+    boundary_rows: Sequence[tuple[float, float, float]],
+    *,
+    l_values: Sequence[float],
+    style: PlotStyle | None = None,
+) -> None:
+    """複数 l* の反転境界 phi_crit(theta) を1枚に重ねて保存する（exp08）。"""
+    plot_style = style if style is not None else PlotStyle()
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    for index, l_fixed in enumerate(l_values):
+        selected = [
+            (theta_deg, phi_crit)
+            for theta_deg, l_value, phi_crit in boundary_rows
+            if abs(l_value - l_fixed) < 1e-9
+        ]
+        if not selected:
+            continue
+        theta_deg = [row[0] for row in selected]
+        phi_crit = [row[1] for row in selected]
+        order = np.argsort(theta_deg)
+        theta_sorted = np.asarray(theta_deg, dtype=np.float64)[order]
+        phi_sorted = np.asarray(phi_crit, dtype=np.float64)[order]
+        axis.plot(
+            theta_sorted,
+            phi_sorted,
+            color=colors[index % len(colors)],
+            linewidth=plot_style.line_width,
+            marker="o",
+            markersize=3.5,
+            label=rf"$l^{{*}}={l_fixed:g}$",
+        )
+
+    axis.set_xlabel(r"$\theta$ [deg]", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$\varphi_{\mathrm{crit}}$ [deg]", fontsize=plot_style.font_size)
+    axis.set_title(
+        r"$\Delta$ sign-inversion boundaries",
+        fontsize=plot_style.font_size,
+    )
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    axis.legend(fontsize=plot_style.font_size)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Inversion boundary (multi-l) saved: %s", path)
+
+
+def plot_coordination_map_theta_phi(
+    path: Path | str,
+    theta_values_deg: ArrayLike,
+    phi_values: ArrayLike,
+    coordination_maps: Sequence[ArrayLike],
+    *,
+    l_fixed: float,
+    l_values: ArrayLike,
+    style: PlotStyle | None = None,
+) -> None:
+    """固定 l* で theta-phi 平面上の協調レジーム (+/-1) を保存する（exp08）。"""
+    plot_style = style if style is not None else PlotStyle()
+    theta_deg_arr = np.asarray(theta_values_deg, dtype=np.float64)
+    phi_arr = np.asarray(phi_values, dtype=np.float64)
+    l_arr = np.asarray(l_values, dtype=np.float64)
+    if len(coordination_maps) != theta_deg_arr.size:
+        raise ValueError("len(coordination_maps) must match len(theta_values_deg).")
+
+    i_l = int(np.argmin(np.abs(l_arr - l_fixed)))
+    l_actual = float(l_arr[i_l])
+    regime = np.empty((theta_deg_arr.size, phi_arr.size), dtype=np.float64)
+    for i_theta, coord_map in enumerate(coordination_maps):
+        coord_arr = np.asarray(coord_map, dtype=np.float64)
+        if coord_arr.shape != (phi_arr.size, l_arr.size):
+            raise ValueError("coordination_map shape mismatch.")
+        regime[i_theta, :] = coord_arr[:, i_l]
+
+    phi_deg = np.degrees(phi_arr)
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    mesh = axis.pcolormesh(
+        theta_deg_arr,
+        phi_deg,
+        regime.T,
+        shading="nearest",
+        cmap="coolwarm",
+        vmin=-1.0,
+        vmax=1.0,
+    )
+    fig.colorbar(mesh, ax=axis, label="coordination sign")
+    axis.set_xlabel(r"$\theta$ [deg]", fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$\varphi$ [deg]", fontsize=plot_style.font_size)
+    axis.set_title(
+        rf"Coordination regime at $l^{{*}}={l_actual:g}$",
+        fontsize=plot_style.font_size,
+    )
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Coordination map (theta-phi) saved: %s", path)
+
+
+def plot_global_opt_vs_theta(
+    path: Path | str,
+    theta_values_deg: ArrayLike,
+    phi_star_deg: ArrayLike,
+    l_star: ArrayLike,
+    q_max_star: ArrayLike,
+    *,
+    style: PlotStyle | None = None,
+) -> None:
+    """グローバル最適 (phi*, l*, Q_max*) の theta 依存を保存する（exp08）。"""
+    plot_style = style if style is not None else PlotStyle()
+    theta_arr = np.asarray(theta_values_deg, dtype=np.float64)
+    phi_arr = np.asarray(phi_star_deg, dtype=np.float64)
+    l_arr = np.asarray(l_star, dtype=np.float64)
+    q_arr = np.asarray(q_max_star, dtype=np.float64)
+
+    fig, axes = plt.subplots(
+        3,
+        1,
+        sharex=True,
+        figsize=(plot_style.figure_width, plot_style.figure_height * 2.2),
+        dpi=plot_style.dpi,
+    )
+    axes[0].plot(
+        theta_arr,
+        phi_arr,
+        color=plot_style.color_primary,
+        linewidth=plot_style.line_width,
+        marker="o",
+    )
+    axes[0].set_ylabel(r"$\varphi^{*}$ [deg]", fontsize=plot_style.font_size)
+    axes[0].grid(True, alpha=plot_style.grid_alpha)
+
+    axes[1].plot(
+        theta_arr,
+        l_arr,
+        color=plot_style.color_secondary,
+        linewidth=plot_style.line_width,
+        marker="s",
+    )
+    axes[1].set_ylabel(dimless_label("l"), fontsize=plot_style.font_size)
+    axes[1].grid(True, alpha=plot_style.grid_alpha)
+
+    axes[2].plot(
+        theta_arr,
+        q_arr,
+        color="0.25",
+        linewidth=plot_style.line_width,
+        marker="^",
+    )
+    axes[2].set_yscale("log")
+    axes[2].set_xlabel(r"$\theta$ [deg]", fontsize=plot_style.font_size)
+    axes[2].set_ylabel(dimless_label("Q"), fontsize=plot_style.font_size)
+    axes[2].grid(True, alpha=plot_style.grid_alpha)
+
+    fig.suptitle(
+        r"Global optimum vs layout angle $\theta$",
+        fontsize=plot_style.font_size + 1,
+    )
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Global optimum vs theta plot saved: %s", path)
+
+
+def plot_q_max_star_vs_theta(
+    path: Path | str,
+    theta_values_deg: ArrayLike,
+    q_max_star: ArrayLike,
+    *,
+    style: PlotStyle | None = None,
+) -> None:
+    """グローバル Q_max*(theta) の1次元プロットを保存する（exp08）。"""
+    plot_style = style if style is not None else PlotStyle()
+    theta_arr = np.asarray(theta_values_deg, dtype=np.float64)
+    q_arr = np.asarray(q_max_star, dtype=np.float64)
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    axis.plot(
+        theta_arr,
+        q_arr,
+        color=plot_style.color_primary,
+        linewidth=plot_style.line_width,
+        marker="o",
+    )
+    axis.set_yscale("log")
+    axis.set_xlabel(r"$\theta$ [deg]", fontsize=plot_style.font_size)
+    axis.set_ylabel(dimless_label("Q"), fontsize=plot_style.font_size)
+    axis.set_title(
+        r"Global $Q_{\max}^{*}(\theta)$",
+        fontsize=plot_style.font_size,
+    )
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Q_max* vs theta plot saved: %s", path)
+
+
+def plot_global_opt_trajectory_phi_l(
+    path: Path | str,
+    phi_star_deg: ArrayLike,
+    l_star: ArrayLike,
+    theta_values_deg: ArrayLike,
+    *,
+    style: PlotStyle | None = None,
+) -> None:
+    """グローバル最適点の phi-l 平面軌跡を保存する（exp08）。"""
+    plot_style = style if style is not None else PlotStyle()
+    phi_arr = np.asarray(phi_star_deg, dtype=np.float64)
+    l_arr = np.asarray(l_star, dtype=np.float64)
+    theta_arr = np.asarray(theta_values_deg, dtype=np.float64)
+
+    fig, axis = plt.subplots(
+        figsize=(plot_style.figure_width, plot_style.figure_height),
+        dpi=plot_style.dpi,
+    )
+    scatter = axis.scatter(
+        l_arr,
+        phi_arr,
+        c=theta_arr,
+        cmap="viridis",
+        s=55.0,
+        edgecolors="black",
+        linewidths=0.4,
+        zorder=3,
+    )
+    for l_value, phi_value, theta_value in zip(l_arr, phi_arr, theta_arr, strict=True):
+        axis.annotate(
+            f"{theta_value:g}",
+            (l_value, phi_value),
+            textcoords="offset points",
+            xytext=(4, 4),
+            fontsize=plot_style.font_size - 2,
+        )
+    axis.set_xscale("log")
+    axis.set_xlabel(dimless_label("l"), fontsize=plot_style.font_size)
+    axis.set_ylabel(r"$\varphi^{*}$ [deg]", fontsize=plot_style.font_size)
+    axis.set_title(
+        r"Global optimum trajectory in $(l^{*},\varphi^{*})$ plane",
+        fontsize=plot_style.font_size,
+    )
+    cbar = fig.colorbar(scatter, ax=axis)
+    cbar.set_label(r"$\theta$ [deg]", fontsize=plot_style.font_size)
+    axis.grid(True, alpha=plot_style.grid_alpha)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info("Global optimum phi-l trajectory saved: %s", path)

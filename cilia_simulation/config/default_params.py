@@ -38,6 +38,7 @@ Exp03Mode = Literal["fast", "fine"]
 Exp05Mode = Literal["fast", "fine"]
 Exp06Mode = Literal["fast", "fine"]
 Exp07Mode = Literal["fast", "fine"]
+Exp08Mode = Literal["fast", "fine"]
 
 # ==========================================
 # 第1段階 exp01: 単一スライダー（壁なし）
@@ -442,7 +443,7 @@ def resolve_exp06_config(
 # ==========================================
 
 # x-y 平面内の相対配置角 [rad]。掃引軸は phi × l。theta=0 で論文 Fig.6 配置。
-EXP07_LAYOUT_THETA: float = math.pi / 4.0
+EXP07_LAYOUT_THETA: float = math.pi / 2.0
 
 # phi 掃引: [phi_min_deg, phi_max_deg) を phi_step_deg 刻み（90° は含めない）。
 EXP07_PHI_MIN_DEG: float = 0.0
@@ -583,6 +584,132 @@ def resolve_exp07_config(
         raise ValueError(f"Unknown exp07 mode: {mode!r}. Use 'fast' or 'fine'.")
 
     preset = EXP07_SOLVER_PRESETS[mode]
+    solver_config = SolverConfig(
+        method=str(preset["method"]),
+        rtol=float(preset["rtol"]),
+        atol=float(preset["atol"]),
+        n_periods=int(preset["n_periods"]),
+        n_eval_per_period=int(preset["n_eval_per_period"]),
+    )
+    return sweep_defaults, solver_config
+
+
+# ==========================================
+# 第8段階 exp08: theta 掃引（phi×l 掃引を各 theta で実行、各点で Delta 最適化）
+# ==========================================
+
+# layout_theta 掃引: [theta_min_deg, theta_max_deg] を theta_step_deg 刻み（90° を含む）。
+EXP08_THETA_MIN_DEG: float = 0.0
+EXP08_THETA_STEP_DEG: float = 5.0
+EXP08_THETA_MAX_DEG: float = 90.0
+
+# phi / l / Delta グリッドは exp07 と同一。
+_EXP08_SWEEP_PHYSICAL: dict[str, float | int | tuple[float, ...]] = {
+    "a": 0.05,
+    "mu": 1.0,
+    "k": 2.0,
+    "F_0": 1.0,
+    "omega": math.pi,
+    "h": 1.0,
+    "s1_0": 0.0,
+    "s2_0": 0.0,
+    "theta_min_deg": EXP08_THETA_MIN_DEG,
+    "theta_step_deg": EXP08_THETA_STEP_DEG,
+    "theta_max_deg": EXP08_THETA_MAX_DEG,
+    "phi_min_deg": EXP07_PHI_MIN_DEG,
+    "phi_step_deg": EXP07_PHI_STEP_DEG,
+    "phi_max_deg": EXP07_PHI_MAX_DEG,
+    "l_values": EXP07_L_VALUES,
+    "delta_min": -math.pi,
+    "delta_max": math.pi,
+}
+
+_EXP08_SWEEP_GRID: dict[str, dict[str, int]] = {
+    "fast": {
+        "delta_points": 360,
+    },
+    "fine": {
+        "delta_points": 10000,
+    },
+}
+
+EXP08_SWEEP_FAST_DEFAULTS: dict[str, float | int | tuple[float, ...]] = {
+    **_EXP08_SWEEP_PHYSICAL,
+    **_EXP08_SWEEP_GRID["fast"],
+}
+
+EXP08_SWEEP_FINE_DEFAULTS: dict[str, float | int | tuple[float, ...]] = {
+    **_EXP08_SWEEP_PHYSICAL,
+    **_EXP08_SWEEP_GRID["fine"],
+}
+
+EXP08_SWEEP_DEFAULTS: dict[str, float | int | tuple[float, ...]] = (
+    EXP08_SWEEP_FINE_DEFAULTS
+)
+
+# 境界重ね描き・協調マップの既定 l*。
+EXP08_BOUNDARY_L_VALUES: tuple[float, ...] = (0.8, 1.0, 1.5, 2.0)
+
+EXP08_DEFAULT_MODE: Exp08Mode = "fast"
+
+EXP08_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = EXP07_SOLVER_PRESETS
+
+
+def build_exp08_theta_values(
+    theta_min_deg: float,
+    theta_step_deg: float,
+    theta_max_deg: float = EXP08_THETA_MAX_DEG,
+) -> tuple[float, ...]:
+    """
+    exp08 用 layout_theta 掃引値 [rad] を生成する。
+
+    [theta_min_deg, theta_max_deg] を theta_step_deg 刻みで列挙し、
+    theta_max_deg（既定 90°）を含める。
+    """
+    if theta_step_deg <= 0.0:
+        raise ValueError("theta_step_deg must be positive.")
+    if theta_max_deg < theta_min_deg - 1e-12:
+        raise ValueError("theta_max_deg must be >= theta_min_deg.")
+    values: list[float] = []
+    theta_deg = theta_min_deg
+    while theta_deg <= theta_max_deg + 1e-12:
+        values.append(math.radians(theta_deg))
+        theta_deg += theta_step_deg
+    if not values:
+        raise ValueError(
+            "theta sweep produced no points; check theta_min_deg, "
+            "theta_step_deg, theta_max_deg."
+        )
+    return tuple(values)
+
+
+def resolve_exp08_config(
+    mode: Exp08Mode = "fast",
+) -> tuple[dict[str, float | int], SolverConfig]:
+    """
+    exp08 theta×phi×l 掃引（各 (theta, phi, l) で Delta 最適化）の設定を mode から返す。
+
+    Parameters
+    ----------
+    mode : {"fast", "fine"}
+        fast: 粗い Delta グリッド + 前進 Euler（探索用）。
+        fine: 密な Delta グリッド + RK45（高精度用）。
+
+    Returns
+    -------
+    sweep_defaults : dict
+        EXP08_SWEEP_FAST_DEFAULTS または EXP08_SWEEP_FINE_DEFAULTS。
+    solver_config : SolverConfig
+        EXP08_SOLVER_PRESETS に対応する積分設定。
+    """
+    if mode == "fast":
+        sweep_defaults = EXP08_SWEEP_FAST_DEFAULTS
+    elif mode == "fine":
+        sweep_defaults = EXP08_SWEEP_FINE_DEFAULTS
+    else:
+        raise ValueError(f"Unknown exp08 mode: {mode!r}. Use 'fast' or 'fine'.")
+
+    preset = EXP08_SOLVER_PRESETS[mode]
     solver_config = SolverConfig(
         method=str(preset["method"]),
         rtol=float(preset["rtol"]),
