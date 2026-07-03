@@ -23,6 +23,7 @@ import logging
 import math
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +35,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from config.default_params import (
     EXP08_BOUNDARY_L_VALUES,
     EXP08_DEFAULT_MODE,
+    EXP08_IC_SOLVER_PRESET,
     EXP08_THETA_MAX_DEG,
     EXP08_THETA_MIN_DEG,
     EXP08_THETA_STEP_DEG,
@@ -41,7 +43,10 @@ from config.default_params import (
     build_exp08_theta_values,
     resolve_exp08_config,
 )
-from core.sweep import default_worker_count
+from core.initial_conditions import build_initial_position_lookup
+from core.solver import SolverConfig
+from core.sweep import default_worker_count, sweep_with_progress
+from core.two_slider import compute_two_slider_Q_blakelet
 from core.utils import (
     PlotStyle,
     extract_inversion_boundary,
@@ -62,11 +67,10 @@ from core.utils import (
 from experiments.exp07_sweep_phi_l import (
     _as_float,
     _as_int,
-    _build_cases,
     _postprocess_maps,
+    _progress_kwargs_for_workers,
     _resolve_l_values,
     _resolve_phi_values,
-    _sweep_q_map,
 )
 
 # ==========================================
@@ -76,12 +80,127 @@ from experiments.exp07_sweep_phi_l import (
 EXP_NAME = "exp08_sweep_theta_phi_l"
 OUTPUT_BASE = PROJECT_ROOT / "output"
 PLOT_STYLE = PlotStyle()
+PROGRESS_EMA_ALPHA = 0.2
 DELTA_OPT_MAP_HEADER = (
     "phi_rad,phi_deg,l,delta_opt_rad,delta_opt_deg,Q_max,coordination"
 )
 ALL_THETA_MAP_HEADER = f"theta_deg,{DELTA_OPT_MAP_HEADER}"
 GLOBAL_OPT_HEADER = "theta_deg,phi_star_deg,l_star,delta_star_deg,Q_max"
 INVERSION_BOUNDARY_HEADER = "theta_deg,l,phi_crit_deg"
+
+
+@dataclass(frozen=True)
+class _Exp08Case:
+    """exp08 1 ケース分の入力。ProcessPoolExecutor で pickle する。"""
+
+    i_phi: int
+    i_l: int
+    i_d: int
+    phi: float
+    l: float
+    delta: float
+    layout_theta: float
+    mu: float
+    a: float
+    k: float
+    F_0: float
+    omega: float
+    h: float
+    s1_0: float
+    s2_0: float
+    solver_config: SolverConfig
+    steady_n_periods: int
+
+
+def _run_one_case_exp08(case: _Exp08Case) -> tuple[int, int, int, float]:
+    """ワーカープロセスから呼ばれる 1 ケース実行（Blakelet, exp08 IC/Q 設定）。"""
+    Q = compute_two_slider_Q_blakelet(
+        mu=case.mu,
+        a=case.a,
+        k=case.k,
+        F_0=case.F_0,
+        omega=case.omega,
+        phi=case.phi,
+        h=case.h,
+        l=case.l,
+        delta=case.delta,
+        s1_0=case.s1_0,
+        s2_0=case.s2_0,
+        solver_config=case.solver_config,
+        layout_theta=case.layout_theta,
+        steady_n_periods=case.steady_n_periods,
+    )
+    return case.i_phi, case.i_l, case.i_d, Q
+
+
+def _build_cases_exp08(
+    *,
+    phi_values: np.ndarray,
+    l_values: np.ndarray,
+    delta_values: np.ndarray,
+    s1_0_lookup: np.ndarray,
+    s2_0_lookup: np.ndarray,
+    layout_theta: float,
+    mu: float,
+    a: float,
+    k: float,
+    F_0: float,
+    omega: float,
+    h: float,
+    solver_config: SolverConfig,
+    steady_n_periods: int,
+) -> list[_Exp08Case]:
+    cases: list[_Exp08Case] = []
+    for i_phi, phi in enumerate(phi_values):
+        for i_l, l in enumerate(l_values):
+            for i_d, delta in enumerate(delta_values):
+                cases.append(
+                    _Exp08Case(
+                        i_phi=i_phi,
+                        i_l=i_l,
+                        i_d=i_d,
+                        phi=float(phi),
+                        l=float(l),
+                        delta=float(delta),
+                        layout_theta=float(layout_theta),
+                        mu=mu,
+                        a=a,
+                        k=k,
+                        F_0=F_0,
+                        omega=omega,
+                        h=h,
+                        s1_0=float(s1_0_lookup[i_phi, i_d]),
+                        s2_0=float(s2_0_lookup[i_phi]),
+                        solver_config=solver_config,
+                        steady_n_periods=steady_n_periods,
+                    )
+                )
+    return cases
+
+
+def _sweep_q_map_exp08(
+    *,
+    cases: list[_Exp08Case],
+    workers: int,
+    q_map_shape: tuple[int, int, int],
+) -> np.ndarray:
+    """全ケースを実行し q_map を返す。"""
+    q_map = np.empty(q_map_shape, dtype=np.float64)
+
+    def _store_result(result: tuple[int, int, int, float]) -> None:
+        i_phi, i_l, i_d, Q = result
+        q_map[i_phi, i_l, i_d] = Q
+
+    sweep_with_progress(
+        cases=cases,
+        worker_fn=_run_one_case_exp08,
+        workers=workers,
+        on_result=_store_result,
+        desc="exp08 sweep",
+        alpha=PROGRESS_EMA_ALPHA,
+        progress_kwargs=_progress_kwargs_for_workers(workers),
+    )
+    return q_map
 
 
 def _resolve_theta_values(
@@ -280,8 +399,8 @@ def run_experiment(
     F_0 = _as_float(sweep_defaults, "F_0")
     omega = _as_float(sweep_defaults, "omega")
     h = _as_float(sweep_defaults, "h")
-    s1_0 = _as_float(sweep_defaults, "s1_0")
-    s2_0 = _as_float(sweep_defaults, "s2_0")
+    steady_n_periods = _as_int(sweep_defaults, "steady_n_periods")
+    initial_condition_method = str(sweep_defaults["initial_condition_method"])
 
     theta_min_deg = _as_float(sweep_defaults, "theta_min_deg")
     theta_step_deg = _as_float(sweep_defaults, "theta_step_deg")
@@ -304,6 +423,39 @@ def run_experiment(
         dtype=np.float64,
     )
 
+    logging.getLogger(__name__).info(
+        "exp08: building initial position lookup (%s, workers=%d)",
+        initial_condition_method,
+        workers,
+    )
+
+    s1_0_lookup, s2_0_lookup = build_initial_position_lookup(
+        delta_values,
+        method=initial_condition_method,  # type: ignore[arg-type]
+        phi_values=phi_values,
+        mu=mu,
+        a=a,
+        k=k,
+        F_0=F_0,
+        omega=omega,
+        h=h,
+        ic_solver_config=SolverConfig(
+            method=str(EXP08_IC_SOLVER_PRESET["method"]),
+            rtol=float(EXP08_IC_SOLVER_PRESET["rtol"]),
+            atol=float(EXP08_IC_SOLVER_PRESET["atol"]),
+            n_periods=int(EXP08_IC_SOLVER_PRESET["n_periods"]),
+            n_eval_per_period=int(EXP08_IC_SOLVER_PRESET["n_eval_per_period"]),
+        ),
+        ic_workers=workers,
+        progress_desc="exp08 IC lookup",
+    )
+    logging.getLogger(__name__).info(
+        "exp08: initial position lookup ready (%s, shape s1=%s, s2=%s)",
+        initial_condition_method,
+        s1_0_lookup.shape,
+        s2_0_lookup.shape,
+    )
+
     run_dir = make_run_directory(EXP_NAME, base=OUTPUT_BASE)
 
     delta_opt_maps: list[np.ndarray] = []
@@ -323,10 +475,12 @@ def run_experiment(
             theta_values.size,
         )
 
-        cases = _build_cases(
+        cases = _build_cases_exp08(
             phi_values=phi_values,
             l_values=l_values,
             delta_values=delta_values,
+            s1_0_lookup=s1_0_lookup,
+            s2_0_lookup=s2_0_lookup,
             layout_theta=float(layout_theta),
             mu=mu,
             a=a,
@@ -334,13 +488,12 @@ def run_experiment(
             F_0=F_0,
             omega=omega,
             h=h,
-            s1_0=s1_0,
-            s2_0=s2_0,
             solver_config=solver_config,
+            steady_n_periods=steady_n_periods,
         )
         total_cases += len(cases)
 
-        q_map = _sweep_q_map(
+        q_map = _sweep_q_map_exp08(
             cases=cases,
             workers=workers,
             q_map_shape=(phi_values.size, l_values.size, delta_values.size),
@@ -458,6 +611,8 @@ def run_experiment(
             },
             "defaults": sweep_defaults,
             "solver": solver_config,
+            "steady_n_periods": steady_n_periods,
+            "initial_condition_method": initial_condition_method,
         },
     )
 
@@ -469,6 +624,8 @@ def run_experiment(
         f"total_cases: {total_cases}",
         f"integration_method: {solver_config.method}",
         f"n_periods: {solver_config.n_periods}",
+        f"steady_n_periods: {steady_n_periods}",
+        f"initial_condition_method: {initial_condition_method}",
         f"n_eval_per_period: {solver_config.n_eval_per_period}",
         f"theta_sweep [deg]: [{theta_min_deg:.6f}, {theta_max_deg:.6f}] "
         f"step={theta_step_deg:.6f}",

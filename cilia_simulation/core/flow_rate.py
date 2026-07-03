@@ -326,6 +326,7 @@ class FlowCalculator:
         result: TwoSliderResult,
         phi: float,
         use_steady_window: bool = True,
+        steady_n_periods: int = 1,
     ) -> tuple[NDArray[np.float64], NDArray[np.float64], float]:
         """
         2スライダー積分結果から q_x(t) と周期平均 Q を返す。
@@ -337,20 +338,38 @@ class FlowCalculator:
         phi : float
             スライダー傾き角。
         use_steady_window : bool
-            True の場合は最後の1周期で評価する。
+            True の場合は定常窓で評価する。
+        steady_n_periods : int
+            定常窓として使う周期数。1 のとき最後の1周期、
+            n > 1 のとき最後 n 周期の時間平均 Q = integral / (n T)。
         """
-        if use_steady_window:
+        if steady_n_periods < 1:
+            raise ValueError("steady_n_periods must be at least 1.")
+
+        if use_steady_window and steady_n_periods == 1:
             t_used = np.asarray(result.t_steady, dtype=np.float64)
             s1_used = np.asarray(result.s1_steady, dtype=np.float64)
             s2_used = np.asarray(result.s2_steady, dtype=np.float64)
             f1_used = np.asarray(result.f1_total[result.steady_start_index :], dtype=np.float64)
             f2_used = np.asarray(result.f2_total[result.steady_start_index :], dtype=np.float64)
+            averaging_period = result.period
+        elif use_steady_window:
+            t_end = float(result.t[-1])
+            t_start = t_end - steady_n_periods * result.period
+            mask = result.t >= t_start
+            t_used = np.asarray(result.t[mask], dtype=np.float64)
+            s1_used = np.asarray(result.s1[mask], dtype=np.float64)
+            s2_used = np.asarray(result.s2[mask], dtype=np.float64)
+            f1_used = np.asarray(result.f1_total[mask], dtype=np.float64)
+            f2_used = np.asarray(result.f2_total[mask], dtype=np.float64)
+            averaging_period = steady_n_periods * result.period
         else:
             t_used = np.asarray(result.t, dtype=np.float64)
             s1_used = np.asarray(result.s1, dtype=np.float64)
             s2_used = np.asarray(result.s2, dtype=np.float64)
             f1_used = np.asarray(result.f1_total, dtype=np.float64)
             f2_used = np.asarray(result.f2_total, dtype=np.float64)
+            averaging_period = result.period
 
         q_x = self.instantaneous_q_x_two_slider(
             s1=s1_used,
@@ -359,5 +378,5 @@ class FlowCalculator:
             f2_total=f2_used,
             phi=phi,
         )
-        Q = self.period_average_Q(t_used, q_x, period=result.period)
+        Q = self.period_average_Q(t_used, q_x, period=averaging_period)
         return t_used, np.asarray(q_x, dtype=np.float64), Q

@@ -28,22 +28,27 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from config.default_params import (
     EXP07_L_VALUES,
+    EXP08_INITIAL_CONDITION_METHOD,
+    EXP08_STEADY_N_PERIODS,
     EXP08_THETA_MAX_DEG,
     EXP08_THETA_MIN_DEG,
     EXP08_THETA_STEP_DEG,
     build_exp08_theta_values,
     resolve_exp08_config,
 )
+from core.initial_conditions import build_initial_position_lookup
 from core.solver import SolverConfig
 from core.utils import extract_inversion_boundary
 from experiments.exp07_sweep_phi_l import (
-    _build_cases,
     _postprocess_maps,
     _resolve_l_values,
     _resolve_phi_values,
-    _sweep_q_map,
 )
-from experiments.exp08_sweep_theta_phi_l import run_experiment
+from experiments.exp08_sweep_theta_phi_l import (
+    _build_cases_exp08,
+    _sweep_q_map_exp08,
+    run_experiment,
+)
 from optionrun.replot_exp08_from_csv import load_exp08_csv_data, replot_exp08_from_csv
 
 
@@ -72,7 +77,7 @@ def _small_grid_defaults() -> dict[str, float | int | tuple[float, ...]]:
     }
 
 
-def _small_sweep_q_map(*, workers: int, layout_theta: float) -> np.ndarray:
+def _small_sweep_q_map_exp08(*, workers: int, layout_theta: float) -> np.ndarray:
     sweep_defaults = _small_grid_defaults()
     phi_values = _resolve_phi_values(sweep_defaults)
     l_values = _resolve_l_values(sweep_defaults)
@@ -83,10 +88,23 @@ def _small_sweep_q_map(*, workers: int, layout_theta: float) -> np.ndarray:
         endpoint=False,
         dtype=np.float64,
     )
-    cases = _build_cases(
+    s1_0_lookup, s2_0_lookup = build_initial_position_lookup(
+        delta_values,
+        method="decoupled_analytic",
+        phi_values=phi_values,
+        mu=float(sweep_defaults["mu"]),
+        a=float(sweep_defaults["a"]),
+        k=float(sweep_defaults["k"]),
+        F_0=float(sweep_defaults["F_0"]),
+        omega=float(sweep_defaults["omega"]),
+        h=float(sweep_defaults["h"]),
+    )
+    cases = _build_cases_exp08(
         phi_values=phi_values,
         l_values=l_values,
         delta_values=delta_values,
+        s1_0_lookup=s1_0_lookup,
+        s2_0_lookup=s2_0_lookup,
         layout_theta=layout_theta,
         mu=float(sweep_defaults["mu"]),
         a=float(sweep_defaults["a"]),
@@ -94,11 +112,10 @@ def _small_sweep_q_map(*, workers: int, layout_theta: float) -> np.ndarray:
         F_0=float(sweep_defaults["F_0"]),
         omega=float(sweep_defaults["omega"]),
         h=float(sweep_defaults["h"]),
-        s1_0=float(sweep_defaults["s1_0"]),
-        s2_0=float(sweep_defaults["s2_0"]),
         solver_config=_tiny_solver_config(),
+        steady_n_periods=int(sweep_defaults["steady_n_periods"]),
     )
-    return _sweep_q_map(
+    return _sweep_q_map_exp08(
         cases=cases,
         workers=workers,
         q_map_shape=(phi_values.size, l_values.size, delta_values.size),
@@ -125,12 +142,24 @@ class TestExp08Config(unittest.TestCase):
         self.assertAlmostEqual(float(sweep_defaults["theta_max_deg"]), EXP08_THETA_MAX_DEG)
         self.assertEqual(sweep_defaults["l_values"], EXP07_L_VALUES)
         self.assertEqual(int(sweep_defaults["delta_points"]), 360)
+        self.assertEqual(int(sweep_defaults["steady_n_periods"]), EXP08_STEADY_N_PERIODS)
+        self.assertEqual(
+            sweep_defaults["initial_condition_method"],
+            EXP08_INITIAL_CONDITION_METHOD,
+        )
         self.assertEqual(solver_config.method.upper(), "EULER")
+        self.assertEqual(solver_config.n_periods, 10)
 
     def test_fine_preset(self) -> None:
         sweep_defaults, solver_config = resolve_exp08_config("fine")
-        self.assertEqual(int(sweep_defaults["delta_points"]), 10000)
+        self.assertEqual(int(sweep_defaults["delta_points"]), 3600)
         self.assertEqual(solver_config.method.upper(), "RK45")
+        self.assertEqual(solver_config.n_periods, 10)
+        self.assertEqual(int(sweep_defaults["steady_n_periods"]), EXP08_STEADY_N_PERIODS)
+        self.assertEqual(
+            sweep_defaults["initial_condition_method"],
+            EXP08_INITIAL_CONDITION_METHOD,
+        )
 
 
 class TestExp08BoundaryExtraction(unittest.TestCase):
@@ -157,17 +186,16 @@ class TestExp08BoundaryExtraction(unittest.TestCase):
         self.assertAlmostEqual(rows[0][2], 5.0)
 
 
-class TestExp08Theta90Regression(unittest.TestCase):
-    def test_theta_90_matches_exp07_small_grid(self) -> None:
-        q_exp07 = _small_sweep_q_map(workers=1, layout_theta=math.radians(90.0))
-        q_exp08 = _small_sweep_q_map(workers=1, layout_theta=math.radians(90.0))
-        np.testing.assert_allclose(q_exp07, q_exp08, rtol=0.0, atol=0.0)
+class TestExp08DecoupledICSweep(unittest.TestCase):
+    def test_small_grid_sweep_with_decoupled_ic(self) -> None:
+        q_map = _small_sweep_q_map_exp08(workers=1, layout_theta=math.radians(90.0))
+        self.assertEqual(q_map.ndim, 3)
+        self.assertTrue(np.all(np.isfinite(q_map)))
 
         delta_values = np.linspace(-math.pi, math.pi, 8, endpoint=False)
-        maps_exp07 = _postprocess_maps(q_exp07, delta_values)
-        maps_exp08 = _postprocess_maps(q_exp08, delta_values)
-        for left, right in zip(maps_exp07, maps_exp08, strict=True):
-            np.testing.assert_allclose(left, right, rtol=0.0, atol=0.0)
+        delta_opt_map, q_max_map, coordination = _postprocess_maps(q_map, delta_values)
+        self.assertEqual(delta_opt_map.shape, q_max_map.shape)
+        self.assertEqual(coordination.shape, delta_opt_map.shape)
 
 
 class TestExp08Run(unittest.TestCase):
@@ -203,7 +231,7 @@ class TestExp08Run(unittest.TestCase):
                     return_value=run_dir,
                 ),
                 patch(
-                    "experiments.exp08_sweep_theta_phi_l._sweep_q_map",
+                    "experiments.exp08_sweep_theta_phi_l._sweep_q_map_exp08",
                     side_effect=_fake_sweep_q_map,
                 ),
             ):
@@ -257,7 +285,7 @@ class TestExp08Run(unittest.TestCase):
                     return_value=run_dir,
                 ),
                 patch(
-                    "experiments.exp08_sweep_theta_phi_l._sweep_q_map",
+                    "experiments.exp08_sweep_theta_phi_l._sweep_q_map_exp08",
                     side_effect=_fake_sweep_q_map,
                 ),
             ):

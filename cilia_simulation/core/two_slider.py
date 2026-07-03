@@ -126,9 +126,10 @@ def compute_two_slider_Q_blakelet(
     s2_0: float,
     solver_config: SolverConfig,
     layout_theta: float = 0.0,
+    steady_n_periods: int = 1,
 ) -> float:
     """
-    2本スライダー1ケースを Blakelet 移動度で積分し、定常窓1周期の平均流量 Q を返す。
+    2本スライダー1ケースを Blakelet 移動度で積分し、定常窓の平均流量 Q を返す。
 
     compute_two_slider_Q と同一の引数・戻り値。移動度のみ
     TwoSliderMobility（Oseen）から BlakeletTwoSliderMobility に差し替える。
@@ -142,11 +143,13 @@ def compute_two_slider_Q_blakelet(
         積分器設定（周期数、刻み、RK45/Euler など）。
     layout_theta : float
         x-y 平面内の相対配置角（exp06）。0 で論文配置。
+    steady_n_periods : int
+        流量評価に使う定常窓の周期数（デフォルト 1）。
 
     Returns
     -------
     float
-        最後の1周期における周期平均流量 Q。
+        定常窓における周期平均流量 Q。
     """
     mobility = BlakeletTwoSliderMobility(mu=mu, a=a)
     flow = FlowCalculator(mu=mu, h=h)
@@ -169,5 +172,6 @@ def compute_two_slider_Q_blakelet(
         result=result,
         phi=phi,
         use_steady_window=True,
+        steady_n_periods=steady_n_periods,
     )
     return float(Q)

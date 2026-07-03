@@ -434,6 +434,55 @@ def _solve_two_slider_constrained_velocities(
     return float(rdot1 @ es), float(rdot2 @ es), rdot1, rdot2
 
 
+def compute_single_slider_blakelet_ds_dt(
+    *,
+    s: float,
+    t: float,
+    drive_phase: float,
+    phi: float,
+    h: float,
+    mu: float,
+    a: float,
+    k: float,
+    F_0: float,
+    omega: float,
+) -> float:
+    """
+    壁あり Blakelet 自己移動度のみの非結合単独スライダーで ds/dt を返す。
+
+    拘束 e_s_perp · rdot = 0（論文 Eq.(4.5) の 1 スライダー版）を課す。
+    位置は r = (0, 0, h - s sin(phi)) とし、自己項 M_aa(z) のみ使用する
+    （l, layout_theta は非結合自己項に影響しない）。
+    """
+    if k < 0.0:
+        raise ValueError("k must be non-negative.")
+
+    cos_phi = math.cos(phi)
+    sin_phi = math.sin(phi)
+    es = np.array([cos_phi, 0.0, -sin_phi], dtype=np.float64)
+    esp = np.array([sin_phi, 0.0, cos_phi], dtype=np.float64)
+
+    z = h - s * sin_phi
+    if z <= 0.0:
+        raise ValueError("slider height z must be positive; check h, s, and phi.")
+
+    mobility = BlakeletTwoSliderMobility(mu=mu, a=a)
+    r = np.array([0.0, 0.0, z], dtype=np.float64)
+    M_aa = mobility.self_mobility(r)
+
+    f_active = F_0 * math.cos(omega * t + drive_phase)
+    f_total = f_active - k * s
+    f_vec = f_total * es
+    rdot_free = M_aa @ f_vec
+
+    denom = float(esp @ M_aa @ esp)
+    if abs(denom) < 1e-15:
+        raise ValueError("degenerate e_s_perp constraint for single-slider Blakelet.")
+    lambda_perp = -float(esp @ rdot_free) / denom
+    rdot = M_aa @ (f_vec + lambda_perp * esp)
+    return float(es @ rdot)
+
+
 def wall_reflection_mobility(
     z: float,
     *,

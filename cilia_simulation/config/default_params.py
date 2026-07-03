@@ -629,7 +629,7 @@ _EXP08_SWEEP_GRID: dict[str, dict[str, int]] = {
         "delta_points": 360,
     },
     "fine": {
-        "delta_points": 10000,
+        "delta_points": 3600,
     },
 }
 
@@ -652,7 +652,33 @@ EXP08_BOUNDARY_L_VALUES: tuple[float, ...] = (0.8, 1.0, 1.5, 2.0)
 
 EXP08_DEFAULT_MODE: Exp08Mode = "fast"
 
-EXP08_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = EXP07_SOLVER_PRESETS
+EXP08_STEADY_N_PERIODS: int = 5
+EXP08_INITIAL_CONDITION_METHOD: str = "decoupled_blakelet"
+
+EXP08_IC_SOLVER_PRESET: dict[str, float | int | str] = {
+    "method": "RK45",
+    "n_periods": 20,
+    "n_eval_per_period": 1000,
+    "rtol": 1e-8,
+    "atol": 1e-10,
+}
+
+EXP08_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = {
+    "fast": {
+        "method": "EULER",
+        "n_periods": 10,
+        "n_eval_per_period": 40000,
+        "rtol": 1e-8,
+        "atol": 1e-10,
+    },
+    "fine": {
+        "method": "RK45",
+        "n_periods": 10,
+        "n_eval_per_period": 10000,
+        "rtol": 1e-8,
+        "atol": 1e-10,
+    },
+}
 
 
 def build_exp08_theta_values(
@@ -703,11 +729,14 @@ def resolve_exp08_config(
         EXP08_SOLVER_PRESETS に対応する積分設定。
     """
     if mode == "fast":
-        sweep_defaults = EXP08_SWEEP_FAST_DEFAULTS
+        sweep_defaults = dict(EXP08_SWEEP_FAST_DEFAULTS)
     elif mode == "fine":
-        sweep_defaults = EXP08_SWEEP_FINE_DEFAULTS
+        sweep_defaults = dict(EXP08_SWEEP_FINE_DEFAULTS)
     else:
         raise ValueError(f"Unknown exp08 mode: {mode!r}. Use 'fast' or 'fine'.")
+
+    sweep_defaults["steady_n_periods"] = EXP08_STEADY_N_PERIODS
+    sweep_defaults["initial_condition_method"] = EXP08_INITIAL_CONDITION_METHOD
 
     preset = EXP08_SOLVER_PRESETS[mode]
     solver_config = SolverConfig(
