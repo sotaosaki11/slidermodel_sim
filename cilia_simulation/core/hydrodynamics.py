@@ -303,7 +303,7 @@ class TwoSliderMobility:
         f_vec1 = f_total1 * es
         f_vec2 = f_total2 * es
 
-        ds1_dt, ds2_dt, _, _ = _solve_two_slider_constrained_velocities(
+        ds1_dt, ds2_dt, _, _, _, _ = _solve_two_slider_constrained_velocities(
             M_aa_1=M_aa,
             M_aa_2=M_aa,
             M_ab_12=M_ab_12,
@@ -353,16 +353,24 @@ def _solve_two_slider_constrained_velocities(
     es: NDArray[np.float64],
     esp: NDArray[np.float64],
     use_y_constraint: bool,
-) -> tuple[float, float, NDArray[np.float64], NDArray[np.float64]]:
+) -> tuple[
+    float,
+    float,
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+]:
     """
-    拘束付き 2 スライダーのレール方向速度と 3D 速度ベクトルを返す。
+    拘束付き 2 スライダーのレール方向速度・3D 速度・合力ベクトルを返す。
 
     use_y_constraint=False: e_s⊥ 方向のみ（2×2、exp01–05）。
     use_y_constraint=True : e_s⊥ と e_y の両方（4×4、exp06 layout_theta≠0）。
 
     Returns
     -------
-    ds1_dt, ds2_dt, rdot1, rdot2
+    ds1_dt, ds2_dt, rdot1, rdot2, F1, F2
+        F1, F2 は拘束力を含む合力（流体に作用する力）。
     """
     rdot_free_1 = M_aa_1 @ f_vec1 + M_ab_12 @ f_vec2
     rdot_free_2 = M_ab_21 @ f_vec1 + M_aa_2 @ f_vec2
@@ -431,7 +439,7 @@ def _solve_two_slider_constrained_velocities(
 
     rdot1 = M_aa_1 @ F1 + M_ab_12 @ F2
     rdot2 = M_ab_21 @ F1 + M_aa_2 @ F2
-    return float(rdot1 @ es), float(rdot2 @ es), rdot1, rdot2
+    return float(rdot1 @ es), float(rdot2 @ es), rdot1, rdot2, F1, F2
 
 
 def compute_single_slider_blakelet_ds_dt(
@@ -722,7 +730,7 @@ class BlakeletTwoSliderMobility:
         f_vec1 = f_total1 * es
         f_vec2 = f_total2 * es
 
-        ds1_dt, ds2_dt, _, _ = _solve_two_slider_constrained_velocities(
+        ds1_dt, ds2_dt, _, _, _, _ = _solve_two_slider_constrained_velocities(
             M_aa_1=M_aa_1,
             M_aa_2=M_aa_2,
             M_ab_12=M_ab_12,
@@ -734,3 +742,47 @@ class BlakeletTwoSliderMobility:
             use_y_constraint=use_y_constraint,
         )
         return ds1_dt, ds2_dt
+
+    def compute_total_force_x(
+        self,
+        *,
+        r1: ArrayLike,
+        r2: ArrayLike,
+        e_s: ArrayLike,
+        e_s_perp: ArrayLike,
+        f_total1: float,
+        f_total2: float,
+        use_y_constraint: bool = False,
+    ) -> tuple[float, float]:
+        """
+        拘束力を含む合力の x 成分 (F1_x, F2_x) を返す。
+
+        F_i = f_{i,total} e_s + λ_perp e_s⊥ (+ λ_y e_y)。
+        流量評価で拘束力を含める場合に用いる（exp09）。
+        """
+        es = np.asarray(e_s, dtype=np.float64)
+        esp = np.asarray(e_s_perp, dtype=np.float64)
+        if es.shape != (3,) or esp.shape != (3,):
+            raise ValueError("e_s and e_s_perp must be vectors with shape (3,).")
+
+        r1_arr = _as_position3(r1, "r1")
+        r2_arr = _as_position3(r2, "r2")
+        M_aa_1 = self.self_mobility(r1_arr)
+        M_aa_2 = self.self_mobility(r2_arr)
+        M_ab_12 = self.cross_mobility(r1_arr, r2_arr)
+        M_ab_21 = self.cross_mobility(r2_arr, r1_arr)
+
+        f_vec1 = float(f_total1) * es
+        f_vec2 = float(f_total2) * es
+        _, _, _, _, F1, F2 = _solve_two_slider_constrained_velocities(
+            M_aa_1=M_aa_1,
+            M_aa_2=M_aa_2,
+            M_ab_12=M_ab_12,
+            M_ab_21=M_ab_21,
+            f_vec1=f_vec1,
+            f_vec2=f_vec2,
+            es=es,
+            esp=esp,
+            use_y_constraint=use_y_constraint,
+        )
+        return float(F1[0]), float(F2[0])

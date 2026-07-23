@@ -127,6 +127,7 @@ def compute_two_slider_Q_blakelet(
     solver_config: SolverConfig,
     layout_theta: float = 0.0,
     steady_n_periods: int = 1,
+    include_constraint_force_in_Q: bool = False,
 ) -> float:
     """
     2本スライダー1ケースを Blakelet 移動度で積分し、定常窓の平均流量 Q を返す。
@@ -145,6 +146,9 @@ def compute_two_slider_Q_blakelet(
         x-y 平面内の相対配置角（exp06）。0 で論文配置。
     steady_n_periods : int
         流量評価に使う定常窓の周期数（デフォルト 1）。
+    include_constraint_force_in_Q : bool
+        False（既定, exp01–08）: F_x = f_total cos(phi)。
+        True（exp09）: 拘束力 λ を含む合力の x 成分で q_x を評価する。
 
     Returns
     -------
@@ -168,10 +172,15 @@ def compute_two_slider_Q_blakelet(
         config=solver_config,
     )
     result = stepper.run()
+    Fx1 = Fx2 = None
+    if include_constraint_force_in_Q:
+        Fx1, Fx2 = stepper.compute_Fx_series_with_constraints(result)
     _, _, Q = flow.compute_two_slider_Q_from_result(
         result=result,
         phi=phi,
         use_steady_window=True,
         steady_n_periods=steady_n_periods,
+        Fx1=Fx1,
+        Fx2=Fx2,
     )
     return float(Q)

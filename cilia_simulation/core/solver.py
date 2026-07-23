@@ -25,7 +25,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.integrate import solve_ivp
 
-from core.hydrodynamics import Mobility, TwoSliderMobility
+from core.hydrodynamics import Mobility, TwoSliderMobility, BlakeletTwoSliderMobility
 from core.slider import Slider
 
 logger = logging.getLogger(__name__)
@@ -358,6 +358,41 @@ class TwoSliderResult:
         return self.s2[self.steady_start_index :]
 
 
+def compute_Fx_series_with_constraints(
+    *,
+    mobility: BlakeletTwoSliderMobility,
+    result: TwoSliderResult,
+    e_s: NDArray[np.float64],
+    e_s_perp: NDArray[np.float64],
+    r1_base: NDArray[np.float64],
+    r2_base: NDArray[np.float64],
+    use_y_constraint: bool,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """
+    軌道上の各時刻で拘束力込みの F_x 時系列を再計算する。
+
+    F_x = (f_total e_s + λ_perp e_s⊥ + …) · ê_x。
+    """
+    n = result.t.size
+    Fx1 = np.empty(n, dtype=np.float64)
+    Fx2 = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        s1 = float(result.s1[i])
+        s2 = float(result.s2[i])
+        r1 = r1_base + s1 * e_s
+        r2 = r2_base + s2 * e_s
+        Fx1[i], Fx2[i] = mobility.compute_total_force_x(
+            r1=r1,
+            r2=r2,
+            e_s=e_s,
+            e_s_perp=e_s_perp,
+            f_total1=float(result.f1_total[i]),
+            f_total2=float(result.f2_total[i]),
+            use_y_constraint=use_y_constraint,
+        )
+    return Fx1, Fx2
+
+
 class TwoSliderTimeStepper:
     """
     拘束付き2スライダー ODE を積分する（exp02）。
@@ -522,4 +557,27 @@ class TwoSliderTimeStepper:
             period=self._period,
             n_periods=cfg.n_periods,
             steady_start_index=steady_start_index,
+        )
+
+    def compute_Fx_series_with_constraints(
+        self,
+        result: TwoSliderResult,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """
+        軌道上で拘束力込みの F_x 時系列を再計算する（exp09 流量評価用）。
+
+        BlakeletTwoSliderMobility.compute_total_force_x を各サンプルで呼ぶ。
+        """
+        if not isinstance(self.mobility, BlakeletTwoSliderMobility):
+            raise TypeError(
+                "compute_Fx_series_with_constraints requires BlakeletTwoSliderMobility."
+            )
+        return compute_Fx_series_with_constraints(
+            mobility=self.mobility,
+            result=result,
+            e_s=self._e_s,
+            e_s_perp=self._e_s_perp,
+            r1_base=self._r1_base,
+            r2_base=self._r2_base,
+            use_y_constraint=self._use_y_constraint,
         )

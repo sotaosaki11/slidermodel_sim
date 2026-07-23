@@ -32,10 +32,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from typing import Callable
+
 from config.default_params import (
     EXP08_BOUNDARY_L_VALUES,
     EXP08_DEFAULT_MODE,
     EXP08_IC_SOLVER_PRESET,
+    EXP08_INCLUDE_CONSTRAINT_FORCE_IN_Q,
     EXP08_THETA_MAX_DEG,
     EXP08_THETA_MIN_DEG,
     EXP08_THETA_STEP_DEG,
@@ -91,7 +94,7 @@ INVERSION_BOUNDARY_HEADER = "theta_deg,l,phi_crit_deg"
 
 @dataclass(frozen=True)
 class _Exp08Case:
-    """exp08 1 ケース分の入力。ProcessPoolExecutor で pickle する。"""
+    """exp08/exp09 1 ケース分の入力。ProcessPoolExecutor で pickle する。"""
 
     i_phi: int
     i_l: int
@@ -110,10 +113,11 @@ class _Exp08Case:
     s2_0: float
     solver_config: SolverConfig
     steady_n_periods: int
+    include_constraint_force_in_Q: bool
 
 
 def _run_one_case_exp08(case: _Exp08Case) -> tuple[int, int, int, float]:
-    """ワーカープロセスから呼ばれる 1 ケース実行（Blakelet, exp08 IC/Q 設定）。"""
+    """ワーカープロセスから呼ばれる 1 ケース実行（Blakelet）。"""
     Q = compute_two_slider_Q_blakelet(
         mu=case.mu,
         a=case.a,
@@ -129,6 +133,7 @@ def _run_one_case_exp08(case: _Exp08Case) -> tuple[int, int, int, float]:
         solver_config=case.solver_config,
         layout_theta=case.layout_theta,
         steady_n_periods=case.steady_n_periods,
+        include_constraint_force_in_Q=case.include_constraint_force_in_Q,
     )
     return case.i_phi, case.i_l, case.i_d, Q
 
@@ -149,6 +154,7 @@ def _build_cases_exp08(
     h: float,
     solver_config: SolverConfig,
     steady_n_periods: int,
+    include_constraint_force_in_Q: bool = False,
 ) -> list[_Exp08Case]:
     cases: list[_Exp08Case] = []
     for i_phi, phi in enumerate(phi_values):
@@ -173,6 +179,7 @@ def _build_cases_exp08(
                         s2_0=float(s2_0_lookup[i_phi]),
                         solver_config=solver_config,
                         steady_n_periods=steady_n_periods,
+                        include_constraint_force_in_Q=include_constraint_force_in_Q,
                     )
                 )
     return cases
@@ -183,6 +190,7 @@ def _sweep_q_map_exp08(
     cases: list[_Exp08Case],
     workers: int,
     q_map_shape: tuple[int, int, int],
+    progress_desc: str = "exp08 sweep",
 ) -> np.ndarray:
     """全ケースを実行し q_map を返す。"""
     q_map = np.empty(q_map_shape, dtype=np.float64)
@@ -196,7 +204,7 @@ def _sweep_q_map_exp08(
         worker_fn=_run_one_case_exp08,
         workers=workers,
         on_result=_store_result,
-        desc="exp08 sweep",
+        desc=progress_desc,
         alpha=PROGRESS_EMA_ALPHA,
         progress_kwargs=_progress_kwargs_for_workers(workers),
     )
@@ -383,15 +391,23 @@ def run_experiment(
     *,
     mode: Exp08Mode = "fast",
     workers: int | None = None,
+    exp_name: str = EXP_NAME,
+    resolve_config: Callable[[str], tuple[dict, SolverConfig]] = resolve_exp08_config,
+    include_constraint_force_in_Q: bool = EXP08_INCLUDE_CONSTRAINT_FORCE_IN_Q,
+    ic_solver_preset: dict[str, float | int | str] = EXP08_IC_SOLVER_PRESET,
+    boundary_l_values: tuple[float, ...] = EXP08_BOUNDARY_L_VALUES,
+    log_prefix: str = "exp08",
 ) -> Path:
     """
     theta 外側ループ + phi-l 掃引（Blakelet）を実行し、CSV と論文向け図を出力する。
+
+    exp09 は include_constraint_force_in_Q=True と別 exp_name で本関数を再利用する。
     """
     if workers is None:
         workers = default_worker_count()
 
     start_time = time.perf_counter()
-    sweep_defaults, solver_config = resolve_exp08_config(mode)
+    sweep_defaults, solver_config = resolve_config(mode)
 
     mu = _as_float(sweep_defaults, "mu")
     a = _as_float(sweep_defaults, "a")
@@ -401,6 +417,10 @@ def run_experiment(
     h = _as_float(sweep_defaults, "h")
     steady_n_periods = _as_int(sweep_defaults, "steady_n_periods")
     initial_condition_method = str(sweep_defaults["initial_condition_method"])
+    if "include_constraint_force_in_Q" in sweep_defaults:
+        include_constraint_force_in_Q = bool(
+            sweep_defaults["include_constraint_force_in_Q"]
+        )
 
     theta_min_deg = _as_float(sweep_defaults, "theta_min_deg")
     theta_step_deg = _as_float(sweep_defaults, "theta_step_deg")
@@ -424,7 +444,8 @@ def run_experiment(
     )
 
     logging.getLogger(__name__).info(
-        "exp08: building initial position lookup (%s, workers=%d)",
+        "%s: building initial position lookup (%s, workers=%d)",
+        log_prefix,
         initial_condition_method,
         workers,
     )
@@ -440,23 +461,24 @@ def run_experiment(
         omega=omega,
         h=h,
         ic_solver_config=SolverConfig(
-            method=str(EXP08_IC_SOLVER_PRESET["method"]),
-            rtol=float(EXP08_IC_SOLVER_PRESET["rtol"]),
-            atol=float(EXP08_IC_SOLVER_PRESET["atol"]),
-            n_periods=int(EXP08_IC_SOLVER_PRESET["n_periods"]),
-            n_eval_per_period=int(EXP08_IC_SOLVER_PRESET["n_eval_per_period"]),
+            method=str(ic_solver_preset["method"]),
+            rtol=float(ic_solver_preset["rtol"]),
+            atol=float(ic_solver_preset["atol"]),
+            n_periods=int(ic_solver_preset["n_periods"]),
+            n_eval_per_period=int(ic_solver_preset["n_eval_per_period"]),
         ),
         ic_workers=workers,
-        progress_desc="exp08 IC lookup",
+        progress_desc=f"{log_prefix} IC lookup",
     )
     logging.getLogger(__name__).info(
-        "exp08: initial position lookup ready (%s, shape s1=%s, s2=%s)",
+        "%s: initial position lookup ready (%s, shape s1=%s, s2=%s)",
+        log_prefix,
         initial_condition_method,
         s1_0_lookup.shape,
         s2_0_lookup.shape,
     )
 
-    run_dir = make_run_directory(EXP_NAME, base=OUTPUT_BASE)
+    run_dir = make_run_directory(exp_name, base=OUTPUT_BASE)
 
     delta_opt_maps: list[np.ndarray] = []
     q_max_maps: list[np.ndarray] = []
@@ -469,7 +491,8 @@ def run_experiment(
     for i_theta, layout_theta in enumerate(theta_values):
         theta_deg = float(np.degrees(layout_theta))
         logging.getLogger(__name__).info(
-            "exp08: sweeping theta=%.1f deg (%d/%d)",
+            "%s: sweeping theta=%.1f deg (%d/%d)",
+            log_prefix,
             theta_deg,
             i_theta + 1,
             theta_values.size,
@@ -490,6 +513,7 @@ def run_experiment(
             h=h,
             solver_config=solver_config,
             steady_n_periods=steady_n_periods,
+            include_constraint_force_in_Q=include_constraint_force_in_Q,
         )
         total_cases += len(cases)
 
@@ -497,6 +521,7 @@ def run_experiment(
             cases=cases,
             workers=workers,
             q_map_shape=(phi_values.size, l_values.size, delta_values.size),
+            progress_desc=f"{log_prefix} sweep",
         )
         delta_opt_map, q_max_map, coordination = _postprocess_maps(q_map, delta_values)
 
@@ -588,6 +613,7 @@ def run_experiment(
         coordination_maps=coordination_maps,
         global_opt_rows=global_opt_rows,
         boundary_rows=boundary_rows,
+        boundary_l_values=boundary_l_values,
     )
 
     elapsed_seconds = time.perf_counter() - start_time
@@ -597,12 +623,13 @@ def run_experiment(
     save_parameters(
         run_dir / "parameters.json",
         {
-            "experiment": EXP_NAME,
+            "experiment": exp_name,
             "mobility": "BlakeletTwoSliderMobility",
             "wall": "no-slip at z=0",
             "mode": mode,
             "workers": workers,
             "total_cases": total_cases,
+            "include_constraint_force_in_Q": include_constraint_force_in_Q,
             "theta_sweep_deg": {
                 "min": theta_min_deg,
                 "max": theta_max_deg,
@@ -617,11 +644,12 @@ def run_experiment(
     )
 
     summary_lines = [
-        f"experiment: {EXP_NAME}",
+        f"experiment: {exp_name}",
         f"mobility: Blakelet (wall z=0, Eq. 4.4)",
         f"mode: {mode}",
         f"workers: {workers}",
         f"total_cases: {total_cases}",
+        f"include_constraint_force_in_Q: {include_constraint_force_in_Q}",
         f"integration_method: {solver_config.method}",
         f"n_periods: {solver_config.n_periods}",
         f"steady_n_periods: {steady_n_periods}",
@@ -646,6 +674,8 @@ def run_experiment(
         "",
         "Note: phi is slider tilt angle. layout_theta is x-y layout angle (sweep axis).",
         "Note: per-theta outputs are under theta_XXX/ subdirectories.",
+        "Note: include_constraint_force_in_Q=False uses F_x=f_total*cos(phi); "
+        "True includes constraint force lambda in F_x (exp09).",
     ]
     save_summary(run_dir / "summary.txt", summary_lines)
     return run_dir

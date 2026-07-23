@@ -293,6 +293,8 @@ class FlowCalculator:
         f1_total: ArrayLike,
         f2_total: ArrayLike,
         phi: float,
+        Fx1: ArrayLike | None = None,
+        Fx2: ArrayLike | None = None,
     ) -> NDArray[np.float64]:
         """
         2スライダーの瞬時流量 q_x(t) を返す。
@@ -303,22 +305,26 @@ class FlowCalculator:
         壁高さを z_i = h - s_i sin(phi) とし、
 
             q_x(t) = (1/(pi*mu)) * [ z_1*F_{x,1} + z_2*F_{x,2} ]
-            F_{x,i} = f_{i,total} * cos(phi)
 
-        で評価する。
+        既定では F_{x,i} = f_{i,total} * cos(phi)（拘束力なし）。
+        Fx1, Fx2 を渡すと拘束力込みの合力 x 成分をそのまま使う（exp09）。
         """
         s1_arr = np.asarray(s1, dtype=np.float64)
         s2_arr = np.asarray(s2, dtype=np.float64)
-        f1_arr = np.asarray(f1_total, dtype=np.float64)
-        f2_arr = np.asarray(f2_total, dtype=np.float64)
         cos_phi = float(np.cos(phi))
         sin_phi = float(np.sin(phi))
 
         z1 = self._h - s1_arr * sin_phi
         z2 = self._h - s2_arr * sin_phi
-        Fx1 = f1_arr * cos_phi
-        Fx2 = f2_arr * cos_phi
-        return (z1 * Fx1 + z2 * Fx2) / (math.pi * self._mu)
+        if Fx1 is None or Fx2 is None:
+            f1_arr = np.asarray(f1_total, dtype=np.float64)
+            f2_arr = np.asarray(f2_total, dtype=np.float64)
+            Fx1_arr = f1_arr * cos_phi
+            Fx2_arr = f2_arr * cos_phi
+        else:
+            Fx1_arr = np.asarray(Fx1, dtype=np.float64)
+            Fx2_arr = np.asarray(Fx2, dtype=np.float64)
+        return (z1 * Fx1_arr + z2 * Fx2_arr) / (math.pi * self._mu)
 
     def compute_two_slider_Q_from_result(
         self,
@@ -327,6 +333,8 @@ class FlowCalculator:
         phi: float,
         use_steady_window: bool = True,
         steady_n_periods: int = 1,
+        Fx1: ArrayLike | None = None,
+        Fx2: ArrayLike | None = None,
     ) -> tuple[NDArray[np.float64], NDArray[np.float64], float]:
         """
         2スライダー積分結果から q_x(t) と周期平均 Q を返す。
@@ -342,6 +350,8 @@ class FlowCalculator:
         steady_n_periods : int
             定常窓として使う周期数。1 のとき最後の1周期、
             n > 1 のとき最後 n 周期の時間平均 Q = integral / (n T)。
+        Fx1, Fx2 : array_like, optional
+            拘束力込みの F_x 時系列（result.t と同長）。省略時は f_total*cos(phi)。
         """
         if steady_n_periods < 1:
             raise ValueError("steady_n_periods must be at least 1.")
@@ -353,6 +363,7 @@ class FlowCalculator:
             f1_used = np.asarray(result.f1_total[result.steady_start_index :], dtype=np.float64)
             f2_used = np.asarray(result.f2_total[result.steady_start_index :], dtype=np.float64)
             averaging_period = result.period
+            slice_idx = slice(result.steady_start_index, None)
         elif use_steady_window:
             t_end = float(result.t[-1])
             t_start = t_end - steady_n_periods * result.period
@@ -363,6 +374,7 @@ class FlowCalculator:
             f1_used = np.asarray(result.f1_total[mask], dtype=np.float64)
             f2_used = np.asarray(result.f2_total[mask], dtype=np.float64)
             averaging_period = steady_n_periods * result.period
+            slice_idx = mask
         else:
             t_used = np.asarray(result.t, dtype=np.float64)
             s1_used = np.asarray(result.s1, dtype=np.float64)
@@ -370,6 +382,10 @@ class FlowCalculator:
             f1_used = np.asarray(result.f1_total, dtype=np.float64)
             f2_used = np.asarray(result.f2_total, dtype=np.float64)
             averaging_period = result.period
+            slice_idx = slice(None)
+
+        Fx1_used = None if Fx1 is None else np.asarray(Fx1, dtype=np.float64)[slice_idx]
+        Fx2_used = None if Fx2 is None else np.asarray(Fx2, dtype=np.float64)[slice_idx]
 
         q_x = self.instantaneous_q_x_two_slider(
             s1=s1_used,
@@ -377,6 +393,8 @@ class FlowCalculator:
             f1_total=f1_used,
             f2_total=f2_used,
             phi=phi,
+            Fx1=Fx1_used,
+            Fx2=Fx2_used,
         )
         Q = self.period_average_Q(t_used, q_x, period=averaging_period)
         return t_used, np.asarray(q_x, dtype=np.float64), Q

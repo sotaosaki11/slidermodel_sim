@@ -39,6 +39,7 @@ Exp05Mode = Literal["fast", "fine"]
 Exp06Mode = Literal["fast", "fine"]
 Exp07Mode = Literal["fast", "fine"]
 Exp08Mode = Literal["fast", "fine"]
+Exp09Mode = Literal["fast", "fine"]
 
 # ==========================================
 # 第1段階 exp01: 単一スライダー（壁なし）
@@ -603,6 +604,30 @@ EXP08_THETA_MIN_DEG: float = 0.0
 EXP08_THETA_STEP_DEG: float = 5.0
 EXP08_THETA_MAX_DEG: float = 90.0
 
+# phi 掃引: [phi_min_deg, phi_max_deg) を phi_step_deg 刻み（90° は含めない）。
+EXP08_PHI_MIN_DEG: float = 0.0
+EXP08_PHI_STEP_DEG: float = 5.0
+EXP08_PHI_MAX_DEG: float = 90.0
+
+# l* 掃引: 値を直接列挙（旧 linspace(1.5, 6.0, 19) と同等）。
+EXP08_L_VALUES: tuple[float, ...] = (
+    0.8,
+    0.9,
+    1.0,
+    1.1,
+    1.2,
+    1.3,
+    1.4,
+    1.5,
+    1.6,
+    1.8,
+    2.0,
+    2.5,
+    3.0,
+    4.0,
+    8.0,
+)
+
 # phi / l / Delta グリッドは exp07 と同一。
 _EXP08_SWEEP_PHYSICAL: dict[str, float | int | tuple[float, ...]] = {
     "a": 0.05,
@@ -616,10 +641,10 @@ _EXP08_SWEEP_PHYSICAL: dict[str, float | int | tuple[float, ...]] = {
     "theta_min_deg": EXP08_THETA_MIN_DEG,
     "theta_step_deg": EXP08_THETA_STEP_DEG,
     "theta_max_deg": EXP08_THETA_MAX_DEG,
-    "phi_min_deg": EXP07_PHI_MIN_DEG,
-    "phi_step_deg": EXP07_PHI_STEP_DEG,
-    "phi_max_deg": EXP07_PHI_MAX_DEG,
-    "l_values": EXP07_L_VALUES,
+    "phi_min_deg": EXP08_PHI_MIN_DEG,
+    "phi_step_deg": EXP08_PHI_STEP_DEG,
+    "phi_max_deg": EXP08_PHI_MAX_DEG,
+    "l_values": EXP08_L_VALUES,
     "delta_min": -math.pi,
     "delta_max": math.pi,
 }
@@ -737,8 +762,83 @@ def resolve_exp08_config(
 
     sweep_defaults["steady_n_periods"] = EXP08_STEADY_N_PERIODS
     sweep_defaults["initial_condition_method"] = EXP08_INITIAL_CONDITION_METHOD
+    sweep_defaults["include_constraint_force_in_Q"] = False
 
     preset = EXP08_SOLVER_PRESETS[mode]
+    solver_config = SolverConfig(
+        method=str(preset["method"]),
+        rtol=float(preset["rtol"]),
+        atol=float(preset["atol"]),
+        n_periods=int(preset["n_periods"]),
+        n_eval_per_period=int(preset["n_eval_per_period"]),
+    )
+    return sweep_defaults, solver_config
+
+
+# ==========================================
+# 第9段階 exp09: exp08 と同型スイープ（流量に拘束力を含める）
+# ==========================================
+
+# 流量定義スイッチ（コア経路 include_constraint_force_in_Q に対応）。
+# exp08 = False（直線方向力のみ）、exp09 = True（拘束力込みの F_x）。
+EXP08_INCLUDE_CONSTRAINT_FORCE_IN_Q: bool = False
+EXP09_INCLUDE_CONSTRAINT_FORCE_IN_Q: bool = True
+
+# θ / φ / l / Δ グリッドは exp08 と同一。
+EXP09_THETA_MIN_DEG: float = EXP08_THETA_MIN_DEG
+EXP09_THETA_STEP_DEG: float = EXP08_THETA_STEP_DEG
+EXP09_THETA_MAX_DEG: float = EXP08_THETA_MAX_DEG
+EXP09_BOUNDARY_L_VALUES: tuple[float, ...] = EXP08_BOUNDARY_L_VALUES
+
+EXP09_SWEEP_FAST_DEFAULTS: dict[str, float | int | tuple[float, ...]] = dict(
+    EXP08_SWEEP_FAST_DEFAULTS
+)
+EXP09_SWEEP_FINE_DEFAULTS: dict[str, float | int | tuple[float, ...]] = dict(
+    EXP08_SWEEP_FINE_DEFAULTS
+)
+EXP09_SWEEP_DEFAULTS: dict[str, float | int | tuple[float, ...]] = (
+    EXP09_SWEEP_FINE_DEFAULTS
+)
+
+EXP09_DEFAULT_MODE: Exp09Mode = "fast"
+EXP09_STEADY_N_PERIODS: int = EXP08_STEADY_N_PERIODS
+EXP09_INITIAL_CONDITION_METHOD: str = EXP08_INITIAL_CONDITION_METHOD
+EXP09_IC_SOLVER_PRESET: dict[str, float | int | str] = dict(EXP08_IC_SOLVER_PRESET)
+EXP09_SOLVER_PRESETS: dict[str, dict[str, float | int | str]] = EXP08_SOLVER_PRESETS
+
+
+def build_exp09_theta_values(
+    theta_min_deg: float,
+    theta_step_deg: float,
+    theta_max_deg: float = EXP09_THETA_MAX_DEG,
+) -> tuple[float, ...]:
+    """exp09 用 layout_theta 掃引値 [rad]（exp08 と同一生成規則）。"""
+    return build_exp08_theta_values(theta_min_deg, theta_step_deg, theta_max_deg)
+
+
+def resolve_exp09_config(
+    mode: Exp09Mode = "fast",
+) -> tuple[dict[str, float | int], SolverConfig]:
+    """
+    exp09 theta×phi×l 掃引の設定を mode から返す。
+
+    exp08 と同一グリッド・積分設定。流量のみ拘束力込み（
+    include_constraint_force_in_Q=True）。
+    """
+    if mode == "fast":
+        sweep_defaults = dict(EXP09_SWEEP_FAST_DEFAULTS)
+    elif mode == "fine":
+        sweep_defaults = dict(EXP09_SWEEP_FINE_DEFAULTS)
+    else:
+        raise ValueError(f"Unknown exp09 mode: {mode!r}. Use 'fast' or 'fine'.")
+
+    sweep_defaults["steady_n_periods"] = EXP09_STEADY_N_PERIODS
+    sweep_defaults["initial_condition_method"] = EXP09_INITIAL_CONDITION_METHOD
+    sweep_defaults["include_constraint_force_in_Q"] = (
+        EXP09_INCLUDE_CONSTRAINT_FORCE_IN_Q
+    )
+
+    preset = EXP09_SOLVER_PRESETS[mode]
     solver_config = SolverConfig(
         method=str(preset["method"]),
         rtol=float(preset["rtol"]),

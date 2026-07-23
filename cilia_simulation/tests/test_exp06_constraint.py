@@ -74,7 +74,7 @@ class TestExp06YConstraint(unittest.TestCase):
         M_ab_21 = self.blake.cross_mobility(r2, r1)
         f_vec1 = f1 * self.es
         f_vec2 = f2 * self.es
-        return _solve_two_slider_constrained_velocities(
+        ds1, ds2, rdot1, rdot2, _, _ = _solve_two_slider_constrained_velocities(
             M_aa_1=M_aa_1,
             M_aa_2=M_aa_2,
             M_ab_12=M_ab_12,
@@ -85,6 +85,7 @@ class TestExp06YConstraint(unittest.TestCase):
             esp=self.esp,
             use_y_constraint=use_y_constraint,
         )
+        return ds1, ds2, rdot1, rdot2
 
     def test_theta45_satisfies_y_and_perp_constraints(self) -> None:
         _, _, rdot1, rdot2 = self._solve_at(

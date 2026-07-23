@@ -47,11 +47,19 @@ _EXP05_NAME = "exp05_sweep_delta_l_wall"
 _EXP06_NAME = "exp06_sweep_delta_theta"
 _EXP07_NAME = "exp07_sweep_phi_l"
 _EXP08_NAME = "exp08_sweep_theta_phi_l"
+_EXP09_NAME = "exp09_sweep_theta_phi_l_constraint_Q"
 _SUPPORTED_SWEEP_EXPERIMENTS = frozenset(
-    {_EXP03_NAME, _EXP05_NAME, _EXP06_NAME, _EXP07_NAME, _EXP08_NAME}
+    {
+        _EXP03_NAME,
+        _EXP05_NAME,
+        _EXP06_NAME,
+        _EXP07_NAME,
+        _EXP08_NAME,
+        _EXP09_NAME,
+    }
 )
 _BLAKELET_SWEEP_EXPERIMENTS = frozenset(
-    {_EXP05_NAME, _EXP06_NAME, _EXP07_NAME, _EXP08_NAME}
+    {_EXP05_NAME, _EXP06_NAME, _EXP07_NAME, _EXP08_NAME, _EXP09_NAME}
 )
 
 # ==========================================
