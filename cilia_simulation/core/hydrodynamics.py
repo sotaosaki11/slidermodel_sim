@@ -743,6 +743,59 @@ class BlakeletTwoSliderMobility:
         )
         return ds1_dt, ds2_dt
 
+    def compute_velocities_and_Fx(
+        self,
+        *,
+        s1: float,
+        s2: float,
+        r1: ArrayLike,
+        r2: ArrayLike,
+        e_s: ArrayLike,
+        e_s_perp: ArrayLike,
+        f_active1: float,
+        f_active2: float,
+        k: float,
+        use_y_constraint: bool = False,
+    ) -> tuple[float, float, float, float]:
+        """
+        拘束付き速度と、拘束力込み合力の x 成分を同時に返す（exp09 用）。
+
+        1 回の拘束求解で (ds1/dt, ds2/dt, F1_x, F2_x) を得る。
+        """
+        if k < 0.0:
+            raise ValueError("k must be non-negative.")
+
+        es = np.asarray(e_s, dtype=np.float64)
+        esp = np.asarray(e_s_perp, dtype=np.float64)
+        if es.shape != (3,) or esp.shape != (3,):
+            raise ValueError("e_s and e_s_perp must be vectors with shape (3,).")
+
+        r1_arr = _as_position3(r1, "r1")
+        r2_arr = _as_position3(r2, "r2")
+
+        M_aa_1 = self.self_mobility(r1_arr)
+        M_aa_2 = self.self_mobility(r2_arr)
+        M_ab_12 = self.cross_mobility(r1_arr, r2_arr)
+        M_ab_21 = self.cross_mobility(r2_arr, r1_arr)
+
+        f_total1 = float(f_active1 - k * s1)
+        f_total2 = float(f_active2 - k * s2)
+        f_vec1 = f_total1 * es
+        f_vec2 = f_total2 * es
+
+        ds1_dt, ds2_dt, _, _, F1, F2 = _solve_two_slider_constrained_velocities(
+            M_aa_1=M_aa_1,
+            M_aa_2=M_aa_2,
+            M_ab_12=M_ab_12,
+            M_ab_21=M_ab_21,
+            f_vec1=f_vec1,
+            f_vec2=f_vec2,
+            es=es,
+            esp=esp,
+            use_y_constraint=use_y_constraint,
+        )
+        return ds1_dt, ds2_dt, float(F1[0]), float(F2[0])
+
     def compute_total_force_x(
         self,
         *,

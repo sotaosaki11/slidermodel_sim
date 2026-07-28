@@ -398,3 +398,60 @@ class FlowCalculator:
         )
         Q = self.period_average_Q(t_used, q_x, period=averaging_period)
         return t_used, np.asarray(q_x, dtype=np.float64), Q
+
+
+    def compute_two_slider_Q_from_Fx_series(
+        self,
+        *,
+        t: ArrayLike,
+        s1: ArrayLike,
+        s2: ArrayLike,
+        Fx1: ArrayLike,
+        Fx2: ArrayLike,
+        phi: float,
+        period: float,
+        steady_n_periods: int = 1,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], float]:
+        """
+        RHS 保存系列 (t, s, Fx) から定常窓の周期平均 Q を返す（exp09 本命経路）。
+
+        Parameters
+        ----------
+        t, s1, s2, Fx1, Fx2
+            時刻昇順のサンプル（RK45 の RHS 評価時刻など）。
+        phi : float
+            傾き角。
+        period : float
+            駆動周期 T。
+        steady_n_periods : int
+            末尾何周期分を平均するか。
+        """
+        if steady_n_periods < 1:
+            raise ValueError("steady_n_periods must be at least 1.")
+        t_arr = np.asarray(t, dtype=np.float64)
+        s1_arr = np.asarray(s1, dtype=np.float64)
+        s2_arr = np.asarray(s2, dtype=np.float64)
+        Fx1_arr = np.asarray(Fx1, dtype=np.float64)
+        Fx2_arr = np.asarray(Fx2, dtype=np.float64)
+        if t_arr.size < 2:
+            raise ValueError("Fx series must contain at least two samples.")
+
+        t_end = float(t_arr[-1])
+        t_start = t_end - steady_n_periods * float(period)
+        mask = t_arr >= t_start
+        if int(np.count_nonzero(mask)) < 2:
+            raise ValueError("Steady window of Fx series has fewer than two samples.")
+
+        t_used = t_arr[mask]
+        q_x = self.instantaneous_q_x_two_slider(
+            s1=s1_arr[mask],
+            s2=s2_arr[mask],
+            f1_total=np.zeros_like(t_used),
+            f2_total=np.zeros_like(t_used),
+            phi=phi,
+            Fx1=Fx1_arr[mask],
+            Fx2=Fx2_arr[mask],
+        )
+        averaging_period = steady_n_periods * float(period)
+        Q = self.period_average_Q(t_used, q_x, period=averaging_period)
+        return t_used, np.asarray(q_x, dtype=np.float64), Q

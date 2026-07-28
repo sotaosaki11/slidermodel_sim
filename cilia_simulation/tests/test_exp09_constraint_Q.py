@@ -3,9 +3,10 @@ exp09: constraint-force-in-Q validation tests.
 
 Checks:
 1) resolve_exp09_config sets include_constraint_force_in_Q=True.
-2) Fx with constraints differs from f_total*cos(phi) when lambda is nonzero.
-3) Q with include_constraint_force_in_Q True/False can differ on a small case.
-4) End-to-end run_experiment smoke (mocked sweep) writes required files.
+2) RHS recording stores Fx that differs from f_total*cos(phi).
+3) Q with include_constraint_force_in_Q True/False can differ.
+4) include_constraint_force_in_Q=True does not call post-process recompute.
+5) End-to-end run_experiment smoke (mocked sweep).
 """
 
 from __future__ import annotations
@@ -62,7 +63,7 @@ class TestExp09Config(unittest.TestCase):
 
 
 class TestConstraintForceInQ(unittest.TestCase):
-    def test_Fx_differs_from_rail_projection(self) -> None:
+    def test_recorded_Fx_differs_from_rail_projection(self) -> None:
         mobility = BlakeletTwoSliderMobility(mu=1.0, a=0.05)
         phi = math.pi / 4.0
         stepper = TwoSliderTimeStepper(
@@ -78,11 +79,15 @@ class TestConstraintForceInQ(unittest.TestCase):
             s2_0=0.0,
             layout_theta=math.pi / 4.0,
             config=_tiny_solver(),
+            record_constraint_Fx=True,
         )
-        result = stepper.run()
-        Fx1, Fx2 = stepper.compute_Fx_series_with_constraints(result)
-        Fx1_rail = result.f1_total * math.cos(phi)
-        Fx2_rail = result.f2_total * math.cos(phi)
+        stepper.run()
+        t_fx, s1_fx, s2_fx, Fx1, Fx2 = stepper.get_recorded_constraint_Fx_series()
+        self.assertGreater(t_fx.size, 2)
+        f1_total = 1.0 * np.cos(math.pi * t_fx + math.pi / 2.0) - 2.0 * s1_fx
+        f2_total = 1.0 * np.cos(math.pi * t_fx) - 2.0 * s2_fx
+        Fx1_rail = f1_total * math.cos(phi)
+        Fx2_rail = f2_total * math.cos(phi)
         self.assertGreater(float(np.max(np.abs(Fx1 - Fx1_rail))), 1e-10)
         self.assertGreater(float(np.max(np.abs(Fx2 - Fx2_rail))), 1e-10)
 
@@ -114,6 +119,30 @@ class TestConstraintForceInQ(unittest.TestCase):
         self.assertTrue(math.isfinite(Q_without))
         self.assertTrue(math.isfinite(Q_with))
         self.assertGreater(abs(Q_with - Q_without), 1e-12)
+
+    def test_include_constraint_skips_postprocess_recompute(self) -> None:
+        with patch(
+            "core.solver.TwoSliderTimeStepper.compute_Fx_series_with_constraints",
+            side_effect=AssertionError("post-process recompute must not be called"),
+        ):
+            Q = compute_two_slider_Q_blakelet(
+                mu=1.0,
+                a=0.05,
+                k=2.0,
+                F_0=1.0,
+                omega=math.pi,
+                phi=math.pi / 4.0,
+                h=1.0,
+                l=1.0,
+                delta=math.pi / 2.0,
+                s1_0=0.0,
+                s2_0=0.0,
+                solver_config=_tiny_solver(),
+                layout_theta=math.pi / 4.0,
+                steady_n_periods=1,
+                include_constraint_force_in_Q=True,
+            )
+        self.assertTrue(math.isfinite(Q))
 
 
 class TestExp09Run(unittest.TestCase):

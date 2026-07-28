@@ -147,8 +147,9 @@ def compute_two_slider_Q_blakelet(
     steady_n_periods : int
         流量評価に使う定常窓の周期数（デフォルト 1）。
     include_constraint_force_in_Q : bool
-        False（既定, exp01–08）: F_x = f_total cos(phi)。
-        True（exp09）: 拘束力 λ を含む合力の x 成分で q_x を評価する。
+        False（既定, exp01–08）: F_x = f_total cos(phi)、密な t_eval で平均。
+        True（exp09）: RHS 評価時に保存した拘束力込み F_x で q_x を評価する
+        （密な t_eval での再計算は行わない）。
 
     Returns
     -------
@@ -170,17 +171,26 @@ def compute_two_slider_Q_blakelet(
         s2_0=s2_0,
         layout_theta=layout_theta,
         config=solver_config,
+        record_constraint_Fx=include_constraint_force_in_Q,
     )
     result = stepper.run()
-    Fx1 = Fx2 = None
     if include_constraint_force_in_Q:
-        Fx1, Fx2 = stepper.compute_Fx_series_with_constraints(result)
-    _, _, Q = flow.compute_two_slider_Q_from_result(
-        result=result,
-        phi=phi,
-        use_steady_window=True,
-        steady_n_periods=steady_n_periods,
-        Fx1=Fx1,
-        Fx2=Fx2,
-    )
+        t_fx, s1_fx, s2_fx, Fx1, Fx2 = stepper.get_recorded_constraint_Fx_series()
+        _, _, Q = flow.compute_two_slider_Q_from_Fx_series(
+            t=t_fx,
+            s1=s1_fx,
+            s2=s2_fx,
+            Fx1=Fx1,
+            Fx2=Fx2,
+            phi=phi,
+            period=result.period,
+            steady_n_periods=steady_n_periods,
+        )
+    else:
+        _, _, Q = flow.compute_two_slider_Q_from_result(
+            result=result,
+            phi=phi,
+            use_steady_window=True,
+            steady_n_periods=steady_n_periods,
+        )
     return float(Q)

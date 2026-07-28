@@ -405,7 +405,7 @@ class TwoSliderTimeStepper:
     def __init__(
         self,
         *,
-        mobility: TwoSliderMobility,
+        mobility: TwoSliderMobility | BlakeletTwoSliderMobility,
         omega: float,
         k: float,
         F_0: float,
@@ -417,6 +417,7 @@ class TwoSliderTimeStepper:
         s2_0: float = 0.0,
         layout_theta: float = 0.0,
         config: SolverConfig | None = None,
+        record_constraint_Fx: bool = False,
     ) -> None:
         if omega <= 0.0:
             raise ValueError("omega must be positive.")
@@ -438,6 +439,12 @@ class TwoSliderTimeStepper:
         self.config = config if config is not None else SolverConfig()
         self._period = 2.0 * math.pi / self.omega
         self._use_y_constraint = abs(self.layout_theta) > 0.0
+        self.record_constraint_Fx = bool(record_constraint_Fx)
+        self._rec_t: list[float] = []
+        self._rec_s1: list[float] = []
+        self._rec_s2: list[float] = []
+        self._rec_Fx1: list[float] = []
+        self._rec_Fx2: list[float] = []
 
         self._e_s = np.array(
             [math.cos(self.phi), 0.0, -math.sin(self.phi)],
@@ -465,6 +472,42 @@ class TwoSliderTimeStepper:
         """駆動周期 T=2*pi/omega."""
         return self._period
 
+    def _clear_Fx_recording(self) -> None:
+        self._rec_t.clear()
+        self._rec_s1.clear()
+        self._rec_s2.clear()
+        self._rec_Fx1.clear()
+        self._rec_Fx2.clear()
+
+    def get_recorded_constraint_Fx_series(
+        self,
+    ) -> tuple[
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.float64],
+    ]:
+        """
+        RHS 評価時に保存した (t, s1, s2, Fx1, Fx2) を時刻昇順・重複除去して返す。
+
+        同一時刻が複数ある場合は最後の評価を残す（RK ステージの上書き想定）。
+        """
+        if not self._rec_t:
+            raise RuntimeError("No constraint Fx samples were recorded.")
+        t = np.asarray(self._rec_t, dtype=np.float64)
+        s1 = np.asarray(self._rec_s1, dtype=np.float64)
+        s2 = np.asarray(self._rec_s2, dtype=np.float64)
+        Fx1 = np.asarray(self._rec_Fx1, dtype=np.float64)
+        Fx2 = np.asarray(self._rec_Fx2, dtype=np.float64)
+        order = np.argsort(t, kind="mergesort")
+        t, s1, s2, Fx1, Fx2 = t[order], s1[order], s2[order], Fx1[order], Fx2[order]
+        # keep last occurrence of each t
+        t_rev = t[::-1]
+        _, idx_rev = np.unique(t_rev, return_index=True)
+        idx = np.sort(t.size - 1 - idx_rev)
+        return t[idx], s1[idx], s2[idx], Fx1[idx], Fx2[idx]
+
     def _positions_from_state(
         self,
         s1: float,
@@ -485,24 +528,51 @@ class TwoSliderTimeStepper:
         s2 = float(y[1])
         r1, r2 = self._positions_from_state(s1, s2)
         f_active1, f_active2 = self._active_forces(t)
-        ds1_dt, ds2_dt = self.mobility.compute_velocities(
-            s1=s1,
-            s2=s2,
-            r1=r1,
-            r2=r2,
-            e_s=self._e_s,
-            e_s_perp=self._e_s_perp,
-            f_active1=f_active1,
-            f_active2=f_active2,
-            k=self.k,
-            use_y_constraint=self._use_y_constraint,
-        )
+
+        if self.record_constraint_Fx:
+            if not isinstance(self.mobility, BlakeletTwoSliderMobility):
+                raise TypeError(
+                    "record_constraint_Fx requires BlakeletTwoSliderMobility."
+                )
+            ds1_dt, ds2_dt, Fx1, Fx2 = self.mobility.compute_velocities_and_Fx(
+                s1=s1,
+                s2=s2,
+                r1=r1,
+                r2=r2,
+                e_s=self._e_s,
+                e_s_perp=self._e_s_perp,
+                f_active1=f_active1,
+                f_active2=f_active2,
+                k=self.k,
+                use_y_constraint=self._use_y_constraint,
+            )
+            self._rec_t.append(float(t))
+            self._rec_s1.append(s1)
+            self._rec_s2.append(s2)
+            self._rec_Fx1.append(Fx1)
+            self._rec_Fx2.append(Fx2)
+        else:
+            ds1_dt, ds2_dt = self.mobility.compute_velocities(
+                s1=s1,
+                s2=s2,
+                r1=r1,
+                r2=r2,
+                e_s=self._e_s,
+                e_s_perp=self._e_s_perp,
+                f_active1=f_active1,
+                f_active2=f_active2,
+                k=self.k,
+                use_y_constraint=self._use_y_constraint,
+            )
         return np.array([ds1_dt, ds2_dt], dtype=np.float64)
 
     def run(self) -> TwoSliderResult:
         cfg = self.config
         if cfg.n_periods < 1:
             raise ValueError("n_periods must be at least 1.")
+
+        if self.record_constraint_Fx:
+            self._clear_Fx_recording()
 
         t_end = cfg.t_start + cfg.n_periods * self._period
         n_eval = cfg.n_periods * cfg.n_eval_per_period + 1
@@ -538,6 +608,10 @@ class TwoSliderTimeStepper:
         else:
             raise ValueError(f"Unknown integration method: {cfg.method}")
 
+        if self.record_constraint_Fx:
+            # 最終時刻を系列に含める（Euler は最終点で RHS を呼ばないため）
+            self._rhs(float(t[-1]), np.array([float(s1[-1]), float(s2[-1])], dtype=np.float64))
+
         f_active1 = self.F_0 * np.cos(self.omega * t + self.delta)
         f_active2 = self.F_0 * np.cos(self.omega * t)
         f1_total = f_active1 - self.k * s1
@@ -564,9 +638,9 @@ class TwoSliderTimeStepper:
         result: TwoSliderResult,
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """
-        軌道上で拘束力込みの F_x 時系列を再計算する（exp09 流量評価用）。
+        軌道上で拘束力込みの F_x 時系列を再計算する（レガシー / 検証用）。
 
-        BlakeletTwoSliderMobility.compute_total_force_x を各サンプルで呼ぶ。
+        exp09 の本番経路は record_constraint_Fx=True で RHS 保存を使う。
         """
         if not isinstance(self.mobility, BlakeletTwoSliderMobility):
             raise TypeError(
